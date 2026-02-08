@@ -1,0 +1,6 @@
+../USBX/App/ux_device_cdc_acm.c:68:6:USBD_CDC_ACM_Activate	1
+../USBX/App/ux_device_cdc_acm.c:85:6:USBD_CDC_ACM_Deactivate	1
+../USBX/App/ux_device_cdc_acm.c:100:6:USBD_CDC_ACM_ParameterChange	1
+../USBX/App/ux_device_cdc_acm.c:110:6:usbx_cdc_acm_write_thread_entry	1
+../USBX/App/ux_device_cdc_acm.c:122:6:filex_write_test	5
+../USBX/App/ux_device_cdc_acm.c:157:6:usbx_cdc_acm_read_thread_entry	1

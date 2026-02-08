@@ -1,0 +1,17 @@
+07:34:55 **** Incremental Build of configuration Debug for project usb_cdc_acm_dk1 ****
+make -j8 all 
+arm-none-eabi-gcc "../FileX/App/app_filex.c" -mcpu=cortex-m33 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32U5G9xx -DUX_INCLUDE_USER_DEFINE_FILE -DTX_INCLUDE_USER_DEFINE_FILE -DTX_SINGLE_MODE_NON_SECURE=1 -DFX_INCLUDE_USER_DEFINE_FILE -c -I../Core/Inc -I../Drivers/STM32U5xx_HAL_Driver/Inc -I../Drivers/STM32U5xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32U5xx/Include -I../Drivers/CMSIS/Include -I../USBX/App -I../USBX/Target -I../Middlewares/ST/usbx/common/core/inc -I../Middlewares/ST/usbx/ports/generic/inc -I../Middlewares/ST/usbx/common/usbx_stm32_device_controllers -I../Middlewares/ST/usbx/common/usbx_device_classes/inc -I../AZURE_RTOS/App -I../Middlewares/ST/threadx/common/inc -I../Middlewares/ST/threadx/ports/cortex_m33/gnu/inc -I../FileX/App -I../FileX/Target -I../Middlewares/ST/filex/common/inc -I../Middlewares/ST/filex/ports/generic/inc -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"FileX/App/app_filex.d" -MT"FileX/App/app_filex.o" --specs=nano.specs -mfpu=fpv5-sp-d16 -mfloat-abi=hard -mthumb -o "FileX/App/app_filex.o"
+arm-none-eabi-gcc -o "usb_cdc_acm_dk1.elf" @"objects.list"   -mcpu=cortex-m33 -T"C:\Users\RameshcharyVadla\OneDrive - ILENSYS TECHNOLOGIES PVT. LTD\STM32_H_L\usb_cdc_acm_dk1\usb_cdc_acm_dk1\STM32U5G9NJHXQ_FLASH.ld" --specs=nosys.specs -Wl,-Map="usb_cdc_acm_dk1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+Finished building target: usb_cdc_acm_dk1.elf
+ 
+arm-none-eabi-size  usb_cdc_acm_dk1.elf 
+arm-none-eabi-objdump -h -S usb_cdc_acm_dk1.elf  > "usb_cdc_acm_dk1.list"
+   text	   data	    bss	    dec	    hex	filename
+  88496	    108	  21044	 109648	  1ac50	usb_cdc_acm_dk1.elf
+Finished building: default.size.stdout
+ 
+Finished building: usb_cdc_acm_dk1.list
+ 
+
+07:35:15 Build Finished. 0 errors, 0 warnings. (took 19s.129ms)
+

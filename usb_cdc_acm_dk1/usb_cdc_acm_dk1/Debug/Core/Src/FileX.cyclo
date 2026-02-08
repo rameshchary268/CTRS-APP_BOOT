@@ -1,0 +1,7 @@
+../Core/Src/FileX.c:22:6:format	1
+../Core/Src/FileX.c:43:6:Open_disk	2
+../Core/Src/FileX.c:60:6:creating_file	3
+../Core/Src/FileX.c:75:6:Open_N_write	4
+../Core/Src/FileX.c:111:6:flush	2
+../Core/Src/FileX.c:121:6:Open_N_read_file	6
+../Core/Src/FileX.c:154:6:close_media	2

@@ -1,0 +1,7 @@
+../FileX/Target/fx_stm32_mmc_driver_glue.c:31:5:fx_stm32_mmc_init	1
+../FileX/Target/fx_stm32_mmc_driver_glue.c:55:5:fx_stm32_mmc_deinit	2
+../FileX/Target/fx_stm32_mmc_driver_glue.c:80:5:fx_stm32_mmc_get_status	2
+../FileX/Target/fx_stm32_mmc_driver_glue.c:108:5:fx_stm32_mmc_read_blocks	2
+../FileX/Target/fx_stm32_mmc_driver_glue.c:136:5:fx_stm32_mmc_write_blocks	2
+../FileX/Target/fx_stm32_mmc_driver_glue.c:161:6:HAL_MMC_TxCpltCallback	1
+../FileX/Target/fx_stm32_mmc_driver_glue.c:179:6:HAL_MMC_RxCpltCallback	1
