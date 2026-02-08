@@ -187,3 +187,99 @@ Unable to read memory.
 java.lang.Exception: Unable to read memory.
 	at org.eclipse.cdt.dsf.mi.service.command.AbstractMIControl$RxThread.processMIOutput(AbstractMIControl.java:1024)
 	at org.eclipse.cdt.dsf.mi.service.command.AbstractMIControl$RxThread.run(AbstractMIControl.java:853)
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 07:43:12.786
+!MESSAGE Executed PowerShell command powershell.exe -Command "Get-CimInstance -ClassName Win32_SerialPort | Select-Object -ExpandProperty DeviceID":
+COM81
+COM30
+COM100
+COM101
+COM34
+COM80
+COM10
+
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 07:43:12.788
+!MESSAGE port: COM81
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 07:43:12.789
+!MESSAGE port: COM30
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 07:43:12.790
+!MESSAGE port: COM100
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 07:43:12.791
+!MESSAGE port: COM101
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 07:43:12.792
+!MESSAGE port: COM34
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 07:43:12.793
+!MESSAGE port: COM80
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 07:43:12.794
+!MESSAGE port: COM10
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:02.378
+!MESSAGE Executed PowerShell command powershell.exe -Command "Get-CimInstance -ClassName Win32_SerialPort | Select-Object -ExpandProperty DeviceID":
+COM81
+COM30
+COM100
+COM101
+COM34
+COM80
+COM10
+
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:02.426
+!MESSAGE port: COM81
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:02.427
+!MESSAGE port: COM30
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:02.428
+!MESSAGE port: COM100
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:02.429
+!MESSAGE port: COM101
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:02.430
+!MESSAGE port: COM34
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:02.431
+!MESSAGE port: COM80
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:02.432
+!MESSAGE port: COM10
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:18.460
+!MESSAGE Executed PowerShell command powershell.exe -Command "Get-CimInstance -ClassName Win32_SerialPort | Select-Object -ExpandProperty DeviceID":
+COM81
+COM30
+COM100
+COM101
+COM34
+COM80
+COM10
+
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:18.461
+!MESSAGE port: COM81
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:18.463
+!MESSAGE port: COM30
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:18.465
+!MESSAGE port: COM100
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:18.467
+!MESSAGE port: COM101
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:18.468
+!MESSAGE port: COM34
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:18.470
+!MESSAGE port: COM80
+
+!ENTRY com.st.stm32cube.ide.mpu.remote.serial 1 1 2026-02-08 08:58:18.471
+!MESSAGE port: COM10
