@@ -1,0 +1,657 @@
+/*
+ * BOOT.c
+ *
+ *  Created on: Oct 11, 2025
+ *      Author: RameshcharyVadla
+ */
+
+#include <BOOT.h>
+#include <crc.h>
+#include "EEPROM.h"
+#include <FileX.h>
+
+extern FX_FILE fx_file;
+extern FX_MEDIA mmc_disk;
+extern TX_THREAD my_thread;
+extern ALIGN_32BYTES (uint32_t fx_mmc_media_memory[FX_STM32_MMC_DEFAULT_SECTOR_SIZE / sizeof(uint32_t)]);
+extern TX_THREAD ux_cdc_write_thread;
+extern volatile UINT my_main_flag;
+extern TX_TIMER usb_first_timeout_timer;
+extern BOOT_INFO BOOT_info;
+extern uint8_t flash_flag;
+uint8_t usb_flag = 0;
+//uint8_t read_buffer[512];
+uint8_t CrcCheckStatus = 0;
+
+uint8_t flash_read_buffer[READ_SIZE];
+uint8_t data[READ_SIZE];
+
+uint32_t flash_write_addr = APPLICATION_START_ADDR;
+uint32_t total_written = 0;
+uint8_t jump_flag =0;
+
+uint8_t emmc_buffer[VERIFY_CHUNK_SIZE];
+uint8_t flash_buffer[VERIFY_CHUNK_SIZE];
+
+UpdateFlag_t Update;
+
+uint8_t mythread_flag =0;
+
+UINT status;
+EMMC_Info_t emmc_info = {0};
+typedef void (*pFunction)(void);
+
+
+uint16_t crc16_compute(const uint8_t *data, uint32_t length) {
+	uint16_t crc = 0xFFFF;
+	for (uint32_t i = 0; i < length; i++) {
+		crc ^= data[i];
+		for (uint8_t j = 0; j < 8; j++) {
+			if (crc & 1)
+				crc = (crc >> 1) ^ 0xA001;
+			else
+				crc >>= 1;
+		}
+	}
+	return crc;
+}
+#include "fx_api.h"
+
+extern FX_MEDIA mmc_disk;    // Your mounted eMMC media handle
+//
+//void list_files_in_root(void)
+//{
+//    CHAR name[FX_MAX_LONG_NAME_LEN];  // Buffer for filename
+//    UINT attributes;
+//    ULONG size;
+//    UINT year, month, day, hour, minute, second;
+//    UINT status;
+//
+//
+//    // Start with first entry
+//    status = fx_directory_first_full_entry_find(&mmc_disk,
+//                                                name,
+//                                                &attributes,
+//                                                &size,
+//                                                &year,
+//                                                &month,
+//                                                &day,
+//                                                &hour,
+//                                                &minute,
+//                                                &second);
+//
+//    while (status == FX_SUCCESS)
+//    {
+//        printf("Name: %s | Size: %lu | Date: %02u/%02u/%04u %02u:%02u:%02u",
+//               name, size, day, month, year, hour, minute, second);
+//
+//        if (attributes & FX_DIRECTORY)
+//        {
+//            printf("  [DIR]");
+//        }
+//        printf("\n");
+//
+//        // Get next entry
+//        status = fx_directory_next_full_entry_find(&mmc_disk,
+//                                                   name,
+//                                                   &attributes,
+//                                                   &size,
+//                                                   &year,
+//                                                   &month,
+//                                                   &day,
+//                                                   &hour,
+//                                                   &minute,
+//                                                   &second);
+//    }
+//
+//    if (status == FX_NO_MORE_ENTRIES)
+//    {
+//        printf("End of directory.\n");
+//    }
+//    else if (status != FX_SUCCESS)
+//    {
+//        printf("Directory listing failed with error: %u\n", status);
+//    }
+//}
+
+
+HAL_StatusTypeDef Flash_Write(uint8_t *data, uint32_t length, uint32_t start_address)
+{
+    HAL_StatusTypeDef status = HAL_OK;
+    uint32_t address = start_address;
+
+    // Unlock Flash for programming
+    status = HAL_FLASH_Unlock();
+    if(status != HAL_OK) return status;
+
+    // Use a static aligned buffer for quadword programming
+    static uint64_t quadBuf[2]; // 16 bytes, 64-bit aligned
+
+    for (uint32_t i = 0; i < length; i += 16)
+    {
+        uint32_t chunkSize = (length - i >= 16) ? 16 : (length - i);
+
+        // Fill buffer with 0xFF (default erased value)
+        quadBuf[0] = 0xFFFFFFFFFFFFFFFF;
+        quadBuf[1] = 0xFFFFFFFFFFFFFFFF;
+
+        // Copy actual data into the quadword buffer
+        memcpy(quadBuf, &data[i], chunkSize);
+
+        // Program flash: address must be 16-byte aligned
+        status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_QUADWORD, address + i, (uint32_t)quadBuf);
+        if(status != HAL_OK)
+        {
+            HAL_FLASH_Lock();
+            return status;
+        }
+    }
+
+
+    // Lock Flash after programming
+    HAL_FLASH_Lock();
+    return status;
+
+
+
+}
+
+
+void File_validation(void)
+{
+    UINT status;
+    ULONG bytes_read;
+    uint8_t buffer[BLOCK_SIZE];
+    uint16_t StartCrc = 0x1D0F;
+
+    // Try to open file from FileX
+    status = fx_file_open(&mmc_disk, &fx_file, APPLICATION_FILE_NAME, FX_OPEN_FOR_READ);
+
+    if (status == FX_SUCCESS)
+    {
+    	status = fx_file_seek(&fx_file, 0);
+        do
+        {
+        	  memset(buffer, 0x00, BLOCK_SIZE);
+            // Read file data
+
+            status = fx_file_read(&fx_file, buffer, BLOCK_SIZE, &bytes_read);
+
+            if ((status == FX_SUCCESS) && (bytes_read > 0))
+            {
+                StartCrc = crc16_ccitt_bin(buffer, bytes_read, StartCrc);
+            }
+            else
+            {
+            	bytes_read=0;
+                if (StartCrc == 0)
+                {
+                    Update.update_firmware = 1;
+                    EEPROM_Write(Firmware_update_flag, 0,(uint8_t*)&Update.update_firmware ,1);
+//                    fx_media_flush(&mmc_disk);
+                    fx_file_close(&fx_file);
+                    emmc_info.state = EMMC_INIT;
+                }
+                else
+                {
+                    Update.update_firmware = 0;
+
+                    // Delete invalid file
+                    fx_media_flush(&mmc_disk);
+                    fx_file_close(&fx_file);
+
+                    status =  fx_file_delete(&mmc_disk, APPLICATION_FILE_NAME);
+//                    tx_timer_activate(&usb_first_timeout_timer);
+   				 Set_delay(BOOT_DELAY, DLY_CDC_START, &BOOT_info.app_flag);
+   				 creating_file("CTRS_CFC.bin");
+                    //emmc_info.state = EMMC_ERROR;
+
+                }
+            }
+        } while ((status == FX_SUCCESS) && (bytes_read > 0));
+
+
+    }
+    else
+    {
+        printf("No application file found.\r\n");
+        Update.update_firmware = 0;
+        mythread_flag =1;
+        emmc_info.state = EMMC_ERROR;
+    }
+}
+void media_open()
+{
+		    /* USER CODE END MMC open error */
+	status =  fx_media_open(&mmc_disk, FX_MMC_VOLUME_NAME, fx_stm32_mmc_driver, (VOID *)FX_NULL, (VOID *) fx_mmc_media_memory, sizeof(fx_mmc_media_memory));
+	  if (status != FX_SUCCESS)
+	  {
+	    /* USER CODE BEGIN MMC open error */
+	    while(1);
+	    /* USER CODE END MMC open error */
+	  }
+}
+void RunFlashCheck(void)
+{
+	if(CrcCheckStatus==0)
+	{
+	    uint16_t *ptr2;
+
+	    // Pointer to application firmware start
+	    ptr2 = (uint16_t*)APPLICATION_START_ADDR;
+
+	    // Calculate CRC over application memory region
+	    uint16_t crc_result = crc16_ccitt((uint8_t*)ptr2, MEM_BANK_APP_SIZE);
+
+	    if (crc_result != 0)
+	    {
+	//        CDC_Transmit_FS((uint8_t*)"CRC Failed!\r\n", strlen("CRC Failed!\r\n"));
+	        CrcCheckStatus = 1;  // 1 = fail
+//	        tx_thread_suspend(&my_thread);
+
+	    }
+	    else
+	    {
+	    	 Update.update_firmware=0;
+			 EEPROM_Write(Firmware_update_flag, 0,(uint8_t*)&Update.update_firmware ,1);
+	    	if (CrcCheckStatus == 0)
+			{
+				goto_application1(APPLICATION_START_ADDR);   // Safe to call here
+			}
+			else
+		   {
+			   // Stay in bootloader (do not change state)
+			   mythread_flag =1;
+			   Set_delay(BOOT_DELAY, DLY_CDC_START, &BOOT_info.app_flag);
+
+		   }
+	//        CDC_Transmit_FS((uint8_t*)"CRC OK\r\n", strlen("CRC OK\r\n"));
+	        //CrcCheckStatus = 1;  // 0 = success
+	    }
+	}
+}
+
+
+void boot_proc(void)
+{
+    static uint8_t read_buffer[600];
+    ULONG bytes_read;
+    uint8_t flash_verify_buf[512];   // temporary verify buffer
+
+
+
+    switch (emmc_info.state)
+    {
+        case EMMC_INIT:
+            printf("Initializing eMMC...\n\r");
+//            media_open();   // Mount eMMC
+            emmc_info.state = EMMC_FILE_OPEN;
+            break;
+
+        case EMMC_FILE_OPEN:
+        	EEPROM_Read(Firmware_update_flag, 0,(uint8_t*)&Update.update_firmware ,1);
+            if(Update.update_firmware)
+            {
+            	 emmc_info.status = fx_file_open(&mmc_disk, &fx_file, APPLICATION_FILE_NAME, FX_OPEN_FOR_READ);
+
+				if (emmc_info.status == FX_SUCCESS)
+				{
+					printf("File found.\n\r");
+					emmc_info.file_size = fx_file.fx_file_current_file_size;
+					emmc_info.total_written = 0;
+					emmc_info.flash_write_addr = APPLICATION_START_ADDR;
+					Update.update_firmware = 1;
+					emmc_info.state = EMMC_ERASE;
+//					emmc_info.status = fx_file_close(&fx_file);
+				}
+				else if (emmc_info.status == FX_NOT_FOUND)
+				{
+					emmc_info.status = fx_file_close(&fx_file);
+					 printf("No update file found. Checking flash CRC...\n\r");
+					 Update.update_firmware=0;
+					  EEPROM_Write(Firmware_update_flag, 0,(uint8_t*)&Update.update_firmware ,1);
+					  //emmc_info.state = EMMC_FILE_VALIDATE;
+
+				}
+				else
+				{
+					emmc_info.status = fx_file_close(&fx_file);
+					printf("File open error! Status: %u\n\r", emmc_info.status);
+					emmc_info.state = EMMC_ERROR;
+
+				}
+            }
+            else
+            {
+            	emmc_info.state = EMMC_FILE_VALIDATE;
+            }
+
+            break;
+        case EMMC_FILE_VALIDATE:
+        {
+        	if(BOOT_info.app_flag)
+			{
+				 RunFlashCheck();
+			}
+        	break;
+        }
+        case EMMC_ERASE:
+            printf("Erasing application flash...\n\r");
+            if (Erase_Flash_SingleBank() == HAL_OK)
+            {
+                printf("Erase complete.\n\r");
+                // Seek to start (optional if already at 0)
+                emmc_info.status = fx_file_seek(&fx_file, emmc_info.total_written);
+                emmc_info.state = EMMC_WRITE;
+            }
+            else
+            {
+                printf("Erase failed!\n\r");
+                emmc_info.state = EMMC_ERROR;
+
+//            	tx_thread_suspend(&ux_cdc_write_thread);
+            }
+            break;
+
+        case EMMC_WRITE:
+//        	 emmc_info.status = fx_file_open(&mmc_disk, &fx_file, APPLICATION_FILE_NAME, FX_OPEN_FOR_READ);
+        	flash_flag=1;
+        	    if (emmc_info.total_written < emmc_info.file_size)
+        	    {
+
+        	        ULONG bytes_to_read = (emmc_info.file_size - emmc_info.total_written >= 512) ?
+        	                                  512 : (emmc_info.file_size - emmc_info.total_written);
+
+        	        // 1️⃣ Read 512 bytes from eMMC file
+        	        status = fx_file_read(&fx_file, read_buffer, bytes_to_read, &bytes_read);
+
+        	        if (status != FX_SUCCESS)
+        	        {
+//        	            printf("Read failed at offset %lu\n\r", emmc_info.total_written);
+        	            emmc_info.state = EMMC_ERROR;
+        	            break;
+        	        }
+
+        	        // 2️⃣ Write that chunk to Flash
+        	        if (Flash_Write(read_buffer, bytes_read, emmc_info.flash_write_addr) != HAL_OK)
+        	        {
+//        	            printf("Flash write failed at 0x%08lX\n\r", emmc_info.flash_write_addr);
+        	            emmc_info.state = EMMC_ERROR;
+        	            break;
+        	        }
+        	        emmc_info.flash_write_addr += bytes_read;
+        	        emmc_info.total_written += bytes_read;
+        	    }
+        	    else
+        	    {
+        	       // printf("\n\rFirmware update complete and verified!\n\r");
+        	        fx_file_close(&fx_file);
+        	        tx_thread_resume(&ux_cdc_write_thread);
+        	        emmc_info.state = EMMC_CLEANUP;
+        	    }
+
+        	    break;
+
+        case EMMC_VERIFY:
+            printf("Verifying flashed firmware...\n\r");
+
+               ULONG bytes_read;
+               ULONG offset = 0;
+               uint32_t flash_addr = APPLICATION_START_ADDR;
+               UINT status;
+
+               // Reopen firmware file for reading
+               status = fx_file_open(&mmc_disk, &fx_file, APPLICATION_FILE_NAME, FX_OPEN_FOR_READ);
+               if (status != FX_SUCCESS)
+               {
+                   printf("File open failed during verify! Status: %u\n\r", status);
+                   emmc_info.state = EMMC_ERROR;
+                   break;
+               }
+
+               while (offset < emmc_info.file_size)
+               {
+                   uint32_t bytes_to_read = ((emmc_info.file_size - offset) >= VERIFY_CHUNK_SIZE) ?
+                                            VERIFY_CHUNK_SIZE : (emmc_info.file_size - offset);
+
+                   // Read data from eMMC file
+                   status = fx_file_read(&fx_file, emmc_buffer, bytes_to_read, &bytes_read);
+                   if (status != FX_SUCCESS)
+                   {
+//                       printf("Read failed during verify at offset %lu\n\r", offset);
+                       emmc_info.state = EMMC_ERROR;
+                       fx_file_close(&fx_file);
+                       break;
+                   }
+
+                   // Read data from Flash
+                   memcpy(flash_buffer, (uint8_t *)flash_addr, bytes_to_read);
+
+                   // Compare buffers
+                   if (memcmp(emmc_buffer, flash_buffer, bytes_to_read) != 0)
+                   {
+//                       printf("Verification failed at flash addr 0x%08lX\n\r", flash_addr);
+                       emmc_info.state = EMMC_ERROR;
+                       fx_file_close(&fx_file);
+                       break;
+                   }
+
+                   // Move pointers forward
+                   flash_addr += bytes_to_read;
+                   offset += bytes_read;
+               }
+
+               if (emmc_info.state != EMMC_ERROR)
+               {
+                   printf("Firmware verification successful!\n\r");
+                   emmc_info.state = EMMC_CLEANUP;
+               }
+
+               fx_file_close(&fx_file);
+               break;
+
+        case EMMC_CLEANUP:
+        	flash_flag=0;
+            printf("Cleaning up...\n\r");
+            fx_file_close(&fx_file);
+            fx_file_delete(&mmc_disk, "CTRS_CFC.bin");
+            printf("Deleted firmware file.\n\r");
+            emmc_info.state = EMMC_JUMP;
+            break;
+
+
+        case EMMC_JUMP:
+            printf("Jumping to application...\n\r");
+            jump_flag = 1;
+            emmc_info.state = EMMC_DONE;
+            break;
+
+        case EMMC_DONE:
+            // Finished
+        	if(Update.update_firmware)
+        	{
+        		CrcCheckStatus=0;
+    	        RunFlashCheck();
+
+//        		goto_application1(APPLICATION_START_ADDR);
+        	}
+
+
+            break;
+
+        case EMMC_ERROR:
+            printf("Error occurred during update.\n\r");
+            fx_file_close(&fx_file);
+            emmc_info.state = EMMC_DONE;
+            break;
+
+        default:
+            emmc_info.state = EMMC_INIT;
+            break;
+    }
+}
+
+
+
+
+void write_flash_to_emmc(void) {
+
+	UINT status = FX_SUCCESS;
+
+	// ✅ Copy flash_read_buffer into data buffer before writing to file
+	memcpy(data, flash_read_buffer, READ_SIZE);
+
+	status = fx_file_create(&mmc_disk, "Flash_APP.bin");
+	/* Check the create status.  */
+	if (status != FX_SUCCESS) {
+		/* Check for an already created status. This is expected on the
+		 second pass of this loop!  */
+		if (status != FX_ALREADY_CREATED) {
+			/* Create error, call error handler.  */
+			Error_Handler();
+		}
+	}
+
+	status = fx_file_open(&mmc_disk, &fx_file, "Flash_APP.bin",
+			FX_OPEN_FOR_WRITE);
+	/* Check the file open status.  */
+	if (status != FX_SUCCESS) {
+		/* Error opening file, call error handler.  */
+		Error_Handler();
+	}
+	/* Seek to the beginning of the test file.  */
+	status = fx_file_seek(&fx_file, 0);
+	/* Check the file seek status.  */
+	if (status != FX_SUCCESS) {
+		/* Error performing file seek, call error handler.  */
+		Error_Handler();
+	}
+
+	/* Write a string to the test file.  */
+	status = fx_file_write(&fx_file, data, sizeof(data));
+	/* Check the file write status.  */
+	if (status != FX_SUCCESS) {
+		/* Error writing to a file, call error handler.  */
+		Error_Handler();
+	}
+	/* Close the test file.  */
+	status = fx_file_close(&fx_file);
+	/* Check the file close status.  */
+	if (status != FX_SUCCESS) {
+		/* Error closing the file, call error handler.  */
+		Error_Handler();
+	}
+}
+
+void Read_Flash_Data(uint32_t app_address,uint32_t size) {
+	const uint8_t *flash_ptr = (const uint8_t*) app_address;
+	memcpy(flash_read_buffer, flash_ptr, size);
+
+}
+
+
+void disable_irqs_and_systick(void)
+{
+    __disable_irq();
+    SysTick->CTRL = 0;
+    SysTick->LOAD = 0;
+    SysTick->VAL  = 0;
+
+    uint32_t n = (MCU_IRQS + 31) / 32;
+    for (uint32_t i = 0; i < n; i++) {
+        NVIC->ICER[i] = 0xFFFFFFFF;
+        NVIC->ICPR[i] = 0xFFFFFFFF;
+    }
+
+    __DSB();
+    __ISB();
+}
+ /* === Safe thread termination list === */
+
+
+HAL_StatusTypeDef Erase_Flash_SingleBank(void)
+{
+    HAL_StatusTypeDef status = HAL_OK;
+    FLASH_EraseInitTypeDef eraseInit;
+    uint32_t pageError = 0;
+
+    uint32_t start_page = (FLASH_USER_START_ADDR - FLASH_BASE) / FLASH_PAGE_SIZE;
+    uint32_t end_page   = (FLASH_USER_END_ADDR   - FLASH_BASE) / FLASH_PAGE_SIZE;
+    uint32_t nb_pages   = (end_page - start_page) + 1;
+
+    // Unlock flash
+    HAL_FLASH_Unlock();
+
+    eraseInit.TypeErase = FLASH_TYPEERASE_PAGES;
+    eraseInit.Banks     = FLASH_BANK_BOTH;       // ✅ Only one bank in single bank mode
+    eraseInit.Page      = start_page;
+    eraseInit.NbPages   = nb_pages;
+
+    status = HAL_FLASHEx_Erase(&eraseInit, &pageError);
+
+    // Lock flash again
+    HAL_FLASH_Lock();
+
+    return status;
+}
+
+void goto_application1(uint32_t app_vector_addr)
+ {
+	 typedef void (*pFunction)(void);
+
+	     uint32_t app_msp = *((uint32_t *)app_vector_addr);
+	     uint32_t reset_word = *((uint32_t *)(app_vector_addr + 4));
+	     uint32_t reset_addr = (reset_word & (~(uint32_t)1u)); // mask thumb bit for sanity
+	     pFunction app_entry = (pFunction)reset_word;
+
+	     /* Basic sanity checks */
+	     if ((app_msp < 0x20000000u) || (app_msp > 0x3FFFFFFFu) || (reset_addr < 0x08000000u))
+	     {
+	         /* invalid vector table — stay here */
+	         while (1) { __WFE(); }
+	     }
+
+	     HAL_RCC_DeInit();
+
+	       /* De-initialize all peripherals */
+	       HAL_DeInit();
+
+	     __disable_irq();
+
+	     /* Force thread mode to use MSP (important when jumping from a thread that used PSP) */
+	     __set_CONTROL(0);
+	     __ISB();
+
+	     /* Stop SysTick (prevent stray ticks) */
+	     SysTick->CTRL = 0;
+	     SysTick->VAL  = 0;
+
+	     /* Disable all interrupts and clear pending flags */
+	     for (uint32_t i = 0; i < ((MCU_IRQS + 31u) / 32u); ++i)
+	     {
+	         NVIC->ICER[i] = 0xFFFFFFFFu;
+	         NVIC->ICPR[i] = 0xFFFFFFFFu;
+	     }
+
+	     /* Re-enable all interrupts */
+	     __enable_irq();
+
+	     /* Point vector table to application (so interrupts go to app handlers) */
+	     SCB->VTOR = app_vector_addr;
+	     __DSB();
+	     __ISB();
+
+	     /* Set MSP from application vector table */
+	     __set_MSP(app_msp);
+	     __DSB();
+	     __ISB();
+
+	     /* Jump to application's Reset_Handler (Thumb bit may be set in pointer) */
+	     app_entry();
+
+	     /* Never returns */
+	     while (1) { __WFE(); }
+ }
+
+ /* ===== Middleware safe cleanup (does NOT delete current thread's stack) ===== */
+  /* Safe middleware cleanup (other threads only) */
