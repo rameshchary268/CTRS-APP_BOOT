@@ -1,0 +1,7 @@
+../srrc/EEPROM.c:67:6:I2C1_TxCallback	16	static
+../srrc/EEPROM.c:86:6:I2C1_RxCallback	16	static
+../srrc/EEPROM.c:105:6:I2C1_ErrCallback	16	static
+../srrc/EEPROM.c:124:6:EEPROM_init	8	static
+../srrc/EEPROM.c:150:10:bytestowrite	16	static
+../srrc/EEPROM.c:176:6:EEPROM_Write	56	static
+../srrc/EEPROM.c:229:6:EEPROM_Read	56	static

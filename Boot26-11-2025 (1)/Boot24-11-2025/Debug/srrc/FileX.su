@@ -1,0 +1,7 @@
+../srrc/FileX.c:23:6:format	48	static
+../srrc/FileX.c:44:6:Open_disk	24	static
+../srrc/FileX.c:63:6:creating_file	24	static
+../srrc/FileX.c:119:6:Open_N_write	56	static
+../srrc/FileX.c:155:6:flush	8	static
+../srrc/FileX.c:165:6:Open_N_read_file	32	static
+../srrc/FileX.c:198:6:close_media	8	static

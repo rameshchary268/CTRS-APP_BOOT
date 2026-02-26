@@ -1,0 +1,11 @@
+../srrc/BOOT.c:45:10:crc16_compute	32	static
+../srrc/BOOT.c:118:19:Flash_Write	40	static
+../srrc/BOOT.c:159:6:File_validation	288	static
+../srrc/BOOT.c:222:6:media_open	24	static
+../srrc/BOOT.c:233:6:RunFlashCheck	16	static
+../srrc/BOOT.c:274:6:boot_proc	560	static
+../srrc/BOOT.c:496:6:write_flash_to_emmc	24	static
+../srrc/BOOT.c:545:6:Read_Flash_Data	24	static
+../srrc/BOOT.c:552:6:disable_irqs_and_systick	16	static,ignoring_inline_asm
+../srrc/BOOT.c:571:19:Erase_Flash_SingleBank	48	static
+../srrc/BOOT.c:597:6:goto_application1	48	static,ignoring_inline_asm

@@ -1,0 +1,527 @@
+/*
+ * /////////////////////////////////////////////////////////////////////////////
+ * Module: ulog_if.c
+ * Author: Ilensys
+ *
+ * Created on Feb 14, 2023, 3:00 PM
+ *
+ * Description:
+ * This module contains definitions for event message logging to SD card filesystem
+ *
+ * Note:
+ *  MCU supported: STM32L4P5VGT6
+ * /////////////////////////////////////////////////////////////////////////////
+*/
+/* Includes */
+#include <stdio.h>
+
+#include "ulog.h"
+#include "MyMain.h"
+#include "fx_api.h"
+#include "ux_api.h"
+extern FX_MEDIA                                  *media;
+#define LOG_BUFFER_LENGTH		300  //Maintain same size to copy te data
+#define NO_OF_LOG_BUFFER		2  // Minimum 2 buffers are required
+#define MAX_LOG_MESSAGE_LENGTH	ULOG_MAX_MESSAGE_LENGTH + 50  //Max message size is 120 + 50 bytes for additional info
+static UINT attributes, year, month, Day;
+static UINT hour, minute, second;
+static ULONG size;
+//Buffer usage states
+typedef enum{
+	BUFFER_FREE,
+	BUFFER_ACTIVE,
+	BUFFER_FULL,
+	BUFFER_OVERWRITTEN,
+	BUFFER_COPY_INPROGRESS,
+	BUFFER_NOT_COPIED
+} BufferStateEnum;
+
+//Buffer structure to log the event data
+typedef struct{
+	uint16_t LogBuffWritePtr;
+	BufferStateEnum BufferState;
+	bool IsBufferWriteInProgress;
+	uint8_t LogBuffer[LOG_BUFFER_LENGTH];
+} LogBufferStruct;
+
+LogBufferStruct LogRAMBuffer[NO_OF_LOG_BUFFER];
+LogBufferStruct *ActiveBuffer = &LogRAMBuffer[0];
+RTC_TimeTypeDef RTCTime;
+RTC_DateTypeDef  RTCDate;
+uint8_t MsgBuff[MAX_LOG_MESSAGE_LENGTH];
+uint32_t NoOfMissedLogs = 0;
+//DIR LogFileDir;
+
+//Extern variable defined in other files
+extern RTC_TimeTypeDef  Time;
+extern RTC_DateTypeDef  Date;
+extern RTC_HandleTypeDef hrtc;
+char *Month_name[]={
+		"Jan",
+		"Feb",
+		"Mar",
+		"April",
+		"May",
+		"Jun",
+		"Jul",
+		"Aug",
+		"Sep",
+		"Oct",
+		"Nov",
+		"Dec",
+};
+
+char *Week_name[]={
+		"1st week",
+		"2nd week",
+		"3rd week",
+		"4th week",
+		"5th week",
+};
+static uint16_t WriteBufferToFile(LogBufferStruct *Buff);
+
+
+/*
+ * *****************************************************************************
+ * Function name: GetFreeBuffer
+ * Created by: Veera vijayan Selvaraj
+ * Date:       14-Feb-2023
+ * Description:
+ *  Gets free buffer from the pool to log the data
+ * Parameters:
+ *  Input  : Noe
+ *  Return : Pointer to buffer structure
+ * Note:
+ *
+ * *****************************************************************************
+ */
+#if 1
+static LogBufferStruct* GetFreeBuffer(void)
+{
+	for(uint8_t Ctr = 0; Ctr<NO_OF_LOG_BUFFER; Ctr++)
+	{
+		if(LogRAMBuffer[Ctr].BufferState == BUFFER_FREE)
+		{
+			LogRAMBuffer[Ctr].BufferState = BUFFER_ACTIVE;
+			LogRAMBuffer[Ctr].LogBuffWritePtr = 0;
+			return &LogRAMBuffer[Ctr];
+		}
+		else if((LogRAMBuffer[Ctr].BufferState == BUFFER_FULL)|| (LogRAMBuffer[Ctr].BufferState == BUFFER_ACTIVE))
+		{
+			WriteBufferToFile(&LogRAMBuffer[Ctr]);
+		}
+	}
+
+	//If we are here means there is no free Buffer
+	return NULL;
+}
+#endif
+
+/*
+ * *****************************************************************************
+ * Function name: GetCurrentTime
+ * Created by: Veera vijayan Selvaraj
+ * Date:       14-Feb-2023
+ * Description:
+ *  Gets Curretn timefrom RTC timer variable
+ * Parameters:
+ *  Input  : Pointer to copy RTCDate and RTCtime
+ *  Return : None
+ * Note:
+ *
+ * *****************************************************************************
+ */
+void GetCurrentTime(RTC_DateTypeDef  *CurrentDate, RTC_TimeTypeDef *CurrentTime)
+{
+    Get_TimeStamp();
+
+    CurrentDate->Date = Date.Date;
+    CurrentDate->Month = Date.Month;
+    CurrentDate->Year = Date.Year;
+	CurrentTime->Hours = Time.Hours;
+	CurrentTime->Minutes = Time.Minutes;
+	CurrentTime->Seconds = Time.Seconds;
+	CurrentTime->SubSeconds = Time.SubSeconds;
+	CurrentTime->TimeFormat=Time.TimeFormat;
+}
+
+/*
+ * *****************************************************************************
+ * Function name: GetFileName
+ * Created by: Veera vijayan Selvaraj
+ * Date:       20-Feb-2023
+ * Description:
+ *  Frame the file name using the date read from RTC.
+ * Parameters:
+ *  Input  : Pointer to char array
+ *  Return : None
+ * Note:
+ *
+ * *****************************************************************************
+ */
+void GetFileName(char *FName)
+{
+    Get_TimeStamp();
+
+    // The naming convention for the file is "L_mmddyy.csv".
+    sprintf(FName, "L_%02d%02d%2d.csv", (int)Date.Month, (int)Date.Date, (int)Date.Year);
+}
+
+/*
+ * *****************************************************************************
+ * Function name: WriteBufferToFile
+ * Created by: Veera vijayan Selvaraj
+ * Date:       14-Feb-2023
+ * Description:
+ *  Write buffer content to File
+ * Parameters:
+ *  Input  : Pointer to buffer structure
+ *  Return : Number of character written to file
+ * Note:
+ *
+ * *****************************************************************************
+ */
+static uint16_t WriteBufferToFile(LogBufferStruct *Buff)
+{
+    char Filename[16] = {0};
+    UINT bytesWrote = 0;
+    uint8_t week=0;
+    UINT status;
+
+    if(Buff->BufferState == BUFFER_FREE)
+    {
+    	return 0;
+    }
+    if(Buff->BufferState == BUFFER_ACTIVE && Buff->LogBuffWritePtr == 0)
+    {
+    	Buff->BufferState = BUFFER_FREE;
+    	return 0;
+    }
+
+
+	GetCurrentTime(&RTCDate, &RTCTime);
+	GetFileName(Filename);
+
+	 //If SD card is busy return without copying.
+	if((SD_info.state == SD_BUSY) || (SD_info.state == SD_ERR) || (SD_info.state != SD_DONE))
+	{
+		return 0;
+	}
+	SD_info.state = SD_BUSY;
+	week = weekOfMonth(Date.Date, Date.Month, Date.Year+2000);
+	if(&mmc_disk != UX_NULL)
+	{
+		tx_semaphore_get(&emmc_semaphore, TX_WAIT_FOREVER);
+		create_and_write_file(&mmc_disk,RTCDate.Year+2000, Month_name[RTCDate.Month-1],Week_name[week-1],RTCDate.Date, Filename,(char*)&Buff->LogBuffer,(UINT)Buff->LogBuffWritePtr);
+		status =fx_directory_default_set(&mmc_disk, "\\");
+		status = fx_media_flush(&mmc_disk);
+		tx_semaphore_put(&emmc_semaphore);
+	}
+
+
+//    fres = f_write(&File, Buff->LogBuffer,Buff->LogBuffer,(UINT)Buff->LogBuffWritePtr , &bytesWrote);
+//    if(fres != FR_OK)
+//    {
+//    	f_close(&File);
+//        f_closedir (&LogFileDir);			 /* Close an open directory */
+//	  	System_Status[ERROR_FLAG_0] |= ERR_SD_CARD_FAILURE;
+//        SD_info.state = SD_ERR;
+//    	Buff->BufferState = BUFFER_NOT_COPIED;
+//    	return 0;
+//    }
+//
+//	f_close(&File);
+//    f_closedir (&LogFileDir);			 /* Close an open directory */
+
+    SD_info.state = SD_DONE;
+
+    Buff->LogBuffWritePtr = 0;
+	Buff->BufferState = BUFFER_FREE;
+
+	return bytesWrote;
+}
+
+UINT create_and_write_file(FX_MEDIA *media, UINT Year, CHAR *Month,CHAR *week, UINT Date, CHAR *filename, CHAR *data, uint16_t data_size)
+   {
+       UINT status;
+       FX_FILE file;
+       CHAR path[64];
+
+       // Step 1: Navigate or create Year folder
+       	sprintf(path, "%u", Year);
+       	status = fx_directory_information_get(media, path, &attributes, &size, &year, &month, &Day, &hour, &minute, &second);
+		if (status != FX_SUCCESS) {
+			status=fx_directory_create(media,path);
+			if(status != FX_SUCCESS){
+				return status;
+			}
+		}
+		status = fx_directory_default_set(media, path);
+		if (status != FX_SUCCESS)
+		{
+			return status;
+		}
+
+		status = fx_directory_information_get(media, Month, &attributes, &size, &year, &month, &Day, &hour, &minute, &second);
+		if (status != FX_SUCCESS)
+		{
+			status=fx_directory_create(media,Month);
+			if(status != FX_SUCCESS){
+				return status;
+			}
+		}
+		status = fx_directory_default_set(media, Month);
+		if (status != FX_SUCCESS)
+		{
+			return status;
+		}
+
+		status = fx_directory_information_get(media, week, &attributes, &size, &year, &month, &Day, &hour, &minute, &second);
+		if (status != FX_SUCCESS) {
+			status=fx_directory_create(media,week);
+			if(status != FX_SUCCESS){
+				return status;
+			}
+		}
+		status = fx_directory_default_set(media, week);
+		if (status != FX_SUCCESS)
+		{
+			return status;
+		}
+
+//		sprintf(path, "%u", Date);
+//		status = fx_directory_information_get(media, path, &attributes, &size, &year, &month, &Day, &hour, &minute, &second);
+//		if (status != FX_SUCCESS) {
+//			status=fx_directory_create(media,path);
+//			if(status != FX_SUCCESS){
+//				return status;
+//			}
+//		}
+//		status = fx_directory_default_set(media, path);
+//		if (status != FX_SUCCESS)
+//		{
+//			return status;
+//		}
+		fx_file_date_time_set(media,filename,RTCDate.Year,RTCDate.Month,RTCDate.Date,Time.Hours,Time.Minutes,Time.Seconds);
+		status = fx_file_create(media, filename);
+
+		if (status == FX_ALREADY_CREATED)
+		{
+			// File exists, proceed to open it
+			status = fx_file_open(media, &file, filename, FX_OPEN_FOR_WRITE);
+		}
+		else if (status == FX_SUCCESS)
+		{
+			// File was created successfully, now open it
+			Settings_write_data();
+			status = fx_file_open(media, &file, filename, FX_OPEN_FOR_WRITE);
+			status = fx_file_write(&file,&Data_buffer[0], sizeof(Data_buffer));
+		}
+	  // Step 6: Write data
+		status =fx_file_write(&file, data, data_size);
+		if(status != FX_SUCCESS){}
+
+	// Step 7: Close file
+		status =fx_file_close(&file);
+
+	// Step 8: Return to root directory
+//		status =fx_directory_default_set(media, "\\");
+//		status = fx_media_flush(media);
+
+    	return status;
+  }
+/*
+ * *****************************************************************************
+ * Function name: MyDataLogger
+ * Created by: Veera vijayan Selvaraj
+ * Date:       14-Feb-2023
+ * Description:
+ *  Call back function to ulog
+ * Parameters:
+ *  Input  : Logging level and Message to log
+ *  Return : None
+ * Note:
+ *
+ * *****************************************************************************
+ */
+void MyDataLogger(ulog_level_t severity, char *msg)
+{
+//	char *data=msg;
+	static uint8_t subseconds_data=0,prev_subseconds=0;
+
+//	char Filename[16] = {0};
+
+	if(msg == NULL || severity > ULOG_ALWAYS_LEVEL)
+	{
+		return;
+	}
+	uint16_t MsgLength = strlen(msg);
+	if(MsgLength<=1)
+	{
+		return;
+	}
+	GetCurrentTime(&RTCDate, &RTCTime);
+	if(ActiveBuffer == NULL)
+	{
+		ActiveBuffer = GetFreeBuffer();
+	}
+    uint8_t sd_hour=Time.Hours;
+
+	if(ActiveBuffer)
+	{
+		if(Time.TimeFormat)
+		{
+			if(RTCTime.Hours<12)
+			{
+				sd_hour=RTCTime.Hours+12;
+			}
+			else
+			{
+				sd_hour=RTCTime.Hours;
+			}
+		}
+		else
+		{
+			if( RTCTime.Hours==12)
+			{
+				sd_hour=0;
+			}
+			else
+			{
+				sd_hour=RTCTime.Hours;
+			}
+		}
+		if(prev_subseconds == RTCTime.SubSeconds)
+		{
+			prev_subseconds = RTCTime.SubSeconds;
+			subseconds_data--;
+			if(subseconds_data<0)
+			{
+				subseconds_data=255;
+			}
+		}
+		else
+		{
+			if(subseconds_data>RTCTime.SubSeconds)
+			{
+				subseconds_data--;
+			}
+			else
+			{
+				subseconds_data = RTCTime.SubSeconds;
+			}
+			prev_subseconds = RTCTime.SubSeconds;
+		}
+		if(severity==ULOG_DATA_LEVEL && strstr(msg,"D01"))
+		{
+			prev_subseconds = RTCTime.SubSeconds;
+			subseconds_data = RTCTime.SubSeconds;
+		}
+		if(severity==ULOG_DATA_LEVEL && strstr(msg,"LU1"))
+		{
+			/*for(uint8_t i=0;i<10;i++)
+			{
+				if(Log_data_buff.Message_data[i].Time_stamp[0]==0x0 )
+				{
+					 sprintf((char*)Log_data_buff.Message_data[i].Time_stamp, "%02d/%02d/%02d %02d:%02d:%02d",\
+							 RTCDate.Date,RTCDate.Month,RTCDate.Year, \
+								sd_hour,RTCTime.Minutes,RTCTime.Seconds);
+					 sprintf((char*)Log_data_buff.Message_data[i].Message_buff,(data+5));
+				}
+			}*/
+		}
+
+
+		if(NoOfMissedLogs)
+		{
+			MsgLength = (uint16_t)sprintf((char*)&(ActiveBuffer->LogBuffer[0]), "%02d:%02d:%02d,%02d:%02d:%02d:%03d, Data,  No Buffer!-Missed Logs : %d\r\n",\
+								RTCDate.Month, RTCDate.Date, RTCDate.Year, \
+								sd_hour, RTCTime.Minutes, RTCTime.Seconds, subseconds_data,\
+								(int)NoOfMissedLogs);
+			ActiveBuffer->LogBuffWritePtr = MsgLength;
+			NoOfMissedLogs = 0;
+			//Try again to free up any other full buffer
+			for(uint8_t Ctr = 0; Ctr<NO_OF_LOG_BUFFER; Ctr++)
+			{
+				if(LogRAMBuffer[Ctr].BufferState == BUFFER_FULL)
+				{
+					WriteBufferToFile(&LogRAMBuffer[Ctr]);
+				}
+			}
+		}
+
+		MsgLength = (uint16_t)sprintf((char*)MsgBuff, "%02d:%02d:%02d,%02d:%02d:%02d:%03lu, %-5s, %s\r\n",\
+	            			RTCDate.Month, RTCDate.Date, RTCDate.Year, \
+							sd_hour, RTCTime.Minutes, RTCTime.Seconds, (hrtc.Init.SynchPrediv - subseconds_data),\
+		                    ulog_level_name(severity),
+		                    msg);
+		if((LOG_BUFFER_LENGTH - ActiveBuffer->LogBuffWritePtr)<MsgLength)
+		{
+			MsgLength=(LOG_BUFFER_LENGTH - ActiveBuffer->LogBuffWritePtr);
+		}
+	    memcpy(&(ActiveBuffer->LogBuffer[ActiveBuffer->LogBuffWritePtr]), MsgBuff, MsgLength);
+		ActiveBuffer->LogBuffWritePtr += MsgLength;
+
+		//check if we have space for next message, else try to write the buffer to file system
+		if(((LOG_BUFFER_LENGTH - ActiveBuffer->LogBuffWritePtr) < MAX_LOG_MESSAGE_LENGTH)|| bat_down)
+		{
+			ActiveBuffer->BufferState = BUFFER_FULL;
+			ActiveBuffer->IsBufferWriteInProgress = true;
+			GetFreeBuffer();
+			ActiveBuffer->IsBufferWriteInProgress = false;
+			ActiveBuffer = GetFreeBuffer();
+		}
+		else
+		{
+			// do nothing
+		}
+	}
+	else
+	{
+		NoOfMissedLogs++;
+
+		// Try to free up buffers
+		for(uint8_t Ctr = 0; Ctr<NO_OF_LOG_BUFFER; Ctr++)
+		{
+			if(LogRAMBuffer[Ctr].BufferState == BUFFER_FULL)
+			{
+				LogRAMBuffer[Ctr].IsBufferWriteInProgress = true;
+				WriteBufferToFile(&LogRAMBuffer[Ctr]);
+				LogRAMBuffer[Ctr].IsBufferWriteInProgress = false;
+			}
+		}
+	}
+}
+
+/*
+ * *****************************************************************************
+ * Function name: ulog_if_init
+ * Created by: Veera vijayan Selvaraj
+ * Date:       14-Feb-2023
+ * Description:
+ *  Initialize the Ulog Iterface
+ * Parameters:
+ *  Input  : None
+ *  Return : None
+ * Note:
+ *
+ * *****************************************************************************
+ */
+void ulog_if_init(void)
+{
+	//Initialize Buffers
+	LogRAMBuffer[0].LogBuffWritePtr = 0;
+	LogRAMBuffer[0].BufferState = BUFFER_FREE;
+	LogRAMBuffer[0].IsBufferWriteInProgress = false;
+	LogRAMBuffer[1].LogBuffWritePtr = 0;
+	LogRAMBuffer[1].BufferState = BUFFER_FREE;
+	LogRAMBuffer[1].IsBufferWriteInProgress = false;
+
+    ULOG_INIT();
+
+    // log messages with a severity of TRACE or higher to file Logger.
+    ULOG_SUBSCRIBE(MyDataLogger, ULOG_DATA_LEVEL);
+
+}
+
+

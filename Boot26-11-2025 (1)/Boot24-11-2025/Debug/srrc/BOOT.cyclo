@@ -1,0 +1,11 @@
+../srrc/BOOT.c:45:10:crc16_compute	4
+../srrc/BOOT.c:118:19:Flash_Write	4
+../srrc/BOOT.c:159:6:File_validation	7
+../srrc/BOOT.c:222:6:media_open	2
+../srrc/BOOT.c:233:6:RunFlashCheck	4
+../srrc/BOOT.c:274:6:boot_proc	25
+../srrc/BOOT.c:496:6:write_flash_to_emmc	7
+../srrc/BOOT.c:545:6:Read_Flash_Data	1
+../srrc/BOOT.c:552:6:disable_irqs_and_systick	2
+../srrc/BOOT.c:571:19:Erase_Flash_SingleBank	1
+../srrc/BOOT.c:597:6:goto_application1	5

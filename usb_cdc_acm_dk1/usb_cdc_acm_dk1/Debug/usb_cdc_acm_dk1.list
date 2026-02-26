@@ -3849,7 +3849,8 @@ __STATIC_INLINE void LL_ADC_SetCommonPathInternalCh(ADC_Common_TypeDef *ADCxy_CO
  80017f2:	af00      	add	r7, sp, #0
  80017f4:	6078      	str	r0, [r7, #4]
  80017f6:	6039      	str	r1, [r7, #0]
-  MODIFY_REG(ADCxy_COMMON->CCR, ADC_CCR_VREFEN | ADC_CCR_VSENSEEN | ADC_CCR_VBATEN, PathInternal);
+
+	MODIFY_REG(ADCxy_COMMON->CCR, ADC_CCR_VREFEN | ADC_CCR_VSENSEEN | ADC_CCR_VBATEN, PathInternal);
  80017f8:	687b      	ldr	r3, [r7, #4]
  80017fa:	689b      	ldr	r3, [r3, #8]
  80017fc:	f023 72e0 	bic.w	r2, r3, #29360128	@ 0x1c00000

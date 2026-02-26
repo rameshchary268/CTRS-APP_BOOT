@@ -1,0 +1,587 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file    app_filex.c
+  * @author  MCD Application Team
+  * @brief   FileX applicative file
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2025 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+
+/* Includes ------------------------------------------------------------------*/
+#include "app_filex.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include "MyMain.h"
+#include "DisplayCmdHandlers.h"
+/* USER CODE END Includes */
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* Main thread stack size */
+#define FX_APP_THREAD_STACK_SIZE         1024*4
+/* Main thread priority */
+#define FX_APP_THREAD_PRIO               10
+/* USER CODE BEGIN PD */
+#define MMC_NUM_OF_SECTORS            29884416-1      /* Total number of sectors   */
+#define MMC_SECTORSIZE   ((uint32_t)512U) /*!< Sector size is 512 bytes */
+#define MMC_SIZE        ((MMC_SECOTRSIZE * NUM_OF_SECTORS) >> 2) /* Total data size in bytes */
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+extern char *Month_name[];
+extern char *Week_name[];
+/* USER CODE END PM */
+
+/* Private variables ---------------------------------------------------------*/
+/* Main thread global data structures.  */
+TX_THREAD       fx_app_thread;
+
+/* Buffer for FileX FX_MEDIA sector cache. */
+ALIGN_32BYTES (uint32_t fx_mmc_media_memory[FX_STM32_MMC_DEFAULT_SECTOR_SIZE / sizeof(uint32_t)]);
+/* Define FileX global data structures.  */
+FX_MEDIA        mmc_disk;
+
+/* USER CODE BEGIN PV */
+//static UCHAR Read_buffer[500];
+extern UCHAR read_buffer[30];
+static UINT attributes, year, month, Day;
+static UINT hour, minute, second;
+static ULONG size;
+extern FX_FILE fx_EMMC_file;
+extern UINT status;
+
+//CHAR data2[] = "from ilensys technologies pvt ltd";
+
+FX_FILE PO_file;
+UCHAR scratch_memory[128000];
+ULONG errors_detected;
+
+
+SD_INFO SD_info = SD_INFO_DEFAULT;
+
+
+//static ULONG size;
+
+/* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
+
+/* Main thread entry function.  */
+void fx_app_thread_entry(ULONG thread_input);
+
+/* USER CODE BEGIN PFP */
+
+/* USER CODE END PFP */
+
+/**
+  * @brief  Application FileX Initialization.
+  * @param memory_ptr: memory pointer
+  * @retval int
+*/
+UINT MX_FileX_Init(VOID *memory_ptr)
+{
+  UINT ret = FX_SUCCESS;
+  TX_BYTE_POOL *byte_pool = (TX_BYTE_POOL*)memory_ptr;
+  VOID *pointer;
+
+/* USER CODE BEGIN MX_FileX_MEM_POOL */
+  (void)byte_pool;
+/* USER CODE END MX_FileX_MEM_POOL */
+
+/* USER CODE BEGIN 0 */
+
+/* USER CODE END 0 */
+
+/*Allocate memory for the main thread's stack*/
+  ret = tx_byte_allocate(byte_pool, &pointer, FX_APP_THREAD_STACK_SIZE, TX_NO_WAIT);
+
+/* Check FX_APP_THREAD_STACK_SIZE allocation*/
+  if (ret != FX_SUCCESS)
+  {
+    return TX_POOL_ERROR;
+  }
+
+/* Create the main thread.  */
+  ret = tx_thread_create(&fx_app_thread, FX_APP_THREAD_NAME, fx_app_thread_entry, 0, pointer, FX_APP_THREAD_STACK_SIZE,
+                         FX_APP_THREAD_PRIO, FX_APP_PREEMPTION_THRESHOLD, FX_APP_THREAD_TIME_SLICE, FX_APP_THREAD_AUTO_START);
+
+/* Check main thread creation */
+  if (ret != FX_SUCCESS)
+  {
+    return TX_THREAD_ERROR;
+  }
+
+/* USER CODE BEGIN MX_FileX_Init */
+
+/* USER CODE END MX_FileX_Init */
+
+/* Initialize FileX.  */
+  fx_system_initialize();
+
+/* USER CODE BEGIN MX_FileX_Init 1*/
+  fx_system_date_set(Date.Year+2000,Date.Month,Date.Date);
+  fx_system_time_set(Time.Hours,Time.Minutes,Time.Seconds);
+/* USER CODE END MX_FileX_Init 1*/
+
+  return ret;
+}
+
+/**
+ * @brief  Main thread entry.
+ * @param thread_input: ULONG user argument used by the thread entry
+ * @retval none
+*/
+ void fx_app_thread_entry(ULONG thread_input)
+ {
+
+  UINT mmc_status = FX_SUCCESS;
+
+/* USER CODE BEGIN fx_app_thread_entry 0*/
+
+/* USER CODE END fx_app_thread_entry 0*/
+
+/* Open the disk driver */
+  mmc_status =  fx_media_open(&mmc_disk, FX_MMC_VOLUME_NAME, fx_stm32_mmc_driver, (VOID *)FX_NULL, (VOID *) fx_mmc_media_memory, sizeof(fx_mmc_media_memory));
+
+/* Check the media open mmc_status */
+  if (1)
+  {
+    /* USER CODE BEGIN MMC open error */
+	  if (mmc_status == FX_SUCCESS)
+	  {
+		  SD_info.state = SD_DONE;
+
+	  }
+
+    while(1)
+	{
+	   switch (SD_info.state)
+	   {
+		 /////////////////////////////////////
+		 // INITIIALIZATION OF SDMMC INTERFACE
+		 /////////////////////////////////////
+		 case SD_INIT:
+			 mmc_status =  fx_media_open(&mmc_disk, FX_MMC_VOLUME_NAME, fx_stm32_mmc_driver, (VOID *)FX_NULL, (VOID *) fx_mmc_media_memory, sizeof(fx_mmc_media_memory));
+			 if (mmc_status == FX_SUCCESS)
+			 {
+				 SD_info.state = SD_DONE;
+			 }
+			 break;
+
+		 case SD_BUSY:
+		   // Do nothing
+		  break;
+
+		 case SD_DONE:
+		 //  Settings_Data_sd();
+	 		//SD_info.state=SD_DONE;
+			// Check for image image file in SD card
+		  if(Init_Wait_Delay_for_UI_flg)
+		  {
+			if (SD_info.File_Available)
+			{
+				SendN16DataToDisplay(RESTRICT_COMM_FLAG, 1);
+				SD_info.File_Available=0;
+				SD_PO("SD_PO.txt");
+//				file_detect("0:/extra.bin");
+				if ((FX_SUCCESS == fx_file_attributes_read(&mmc_disk, "Device.pem",&attributes))||
+						(FX_SUCCESS == fx_file_attributes_read(&mmc_disk,"RCA.pem", &attributes)))
+				{
+					wifi_info.Wifi_cert_available=1;
+					wifi_info.state = CHECK_CERT_AVAILABILITY;
+				}
+				else
+				{
+					wifi_info.Wifi_cert_available=0;
+				}
+
+//				status = fx_file_open(&mmc_disk, &fx_EMMC_file, "NORA-3.0.bin", FX_OPEN_FOR_READ);
+//				 if (status == FX_SUCCESS)
+//				 {
+//				   //wifi_info.UART1ErrorDetected = 1;
+//				   wifi_info.wifi_firmware_available=1;
+//				   wifi_info.state = CHECK_CHIP_UPDATE;
+//				   flag=0;
+//				 }
+//				else
+//				{
+//					wifi_info.wifi_firmware_available=0;
+//				}
+//				 fx_file_close(&fx_EMMC_file);
+//				if((FR_OK == f_stat ("BOOT.bin", &file_info)))
+//				{
+//					HAL_IWDG_Refresh(&hiwdg);
+//					Before_update();
+//					BOOT_Load_Update();
+//				}
+//				else
+//				{
+//					Update.update_bootloader = 0;
+//				}
+//				if(SD_info.CFC_4_20mA_file==0) //need to revert
+//				{
+//					if((FR_OK == f_stat ("CFC4_20.bin", &file_info)))
+//					{
+//						if(File_crc_validation("CFC4_20.bin") )
+//						{
+//							SD_info.CFC_4_20mA_file=1;
+//							SendN16DataToDisplay(FW_4_20_mAUpdate_En, SD_info.CFC_4_20mA_file);
+//						}
+//					}
+//					else
+//					{
+//						 SendN16DataToDisplay(FW_4_20_mAUpdate_En, SD_info.CFC_4_20mA_file);
+//						 if(UIUpdateIOTFIRMsettings.Frmware_4_20_mA_update)
+//						 {
+//							 RS485_info.Firmware_4_20=0;
+//							 RegisterAlarm(POLL_4_20mA, &RS485_info.Poll_4_20, 10, SYNC_ON_REGISTER);
+//							 UIUpdateIOTFIRMsettings.Frmware_4_20_mA_update=0;
+//							 RS485_init();
+//							 SendN16DataToDisplay(FIRM_4_20_mA_ICON_WR, UIUpdateIOTFIRMsettings.Frmware_4_20_mA_update);
+//							 SendN16DataToDisplay(FIRM_4_20_mA_ICON_RD, UIUpdateIOTFIRMsettings.Frmware_4_20_mA_update);
+//							 EEPROM_Write(FIRM_4_20_DOW, 0,(uint8_t*)&UIUpdateIOTFIRMsettings.Frmware_4_20_mA_update,1);
+//						 }
+//					}
+//				}
+
+				if ((FX_SUCCESS == fx_file_attributes_read(&mmc_disk, "CTRS_CFC.bin",&attributes))||
+					(FX_SUCCESS == fx_file_attributes_read(&mmc_disk,"FONT", &attributes))||
+					(FX_SUCCESS == fx_file_attributes_read(&mmc_disk,"THMT", &attributes)))
+				{
+					if ((firmware_timer_en == 0)&& (Update.update_bootloader == 0 || Update.update_bootloader == 0xFF)&& (Update.update_firmware == 0|| Update.update_firmware == 0xFF|| Update.update_display == 0|| Update.update_display == 0xFF))
+					{
+						SD_info.bin_present = 1;
+						TargetPage = 0;
+						SendCmdToDisplay(LOAD_PAGE_CMD);
+						SD_info.update_page_flag = 1;
+						 SendN16DataToDisplay(UPDATENOW_PICATIME_VKEY, 1);//update and pick
+					    SendN16DataToDisplay(0x0801E8, 0);
+						SendVPDataCmdToDisplay(firmware_time_clean);
+						//SendVPDataCmdToDisplay(firmware_time_clean1);
+					}
+				}
+				else
+				{
+					Update.update_firmware = 0;
+					Update.update_display = 0;
+					Update.Bist_update = 0;
+					SD_info.update_page_flag = 0;
+					EEPROM_Write(Firmware_update_flag, 0,(uint8_t*) &Update.update_firmware, 5);
+					firmware_timer_en = 0;
+					EEPROM_Write(Firmware_flag_address, 0,(uint8_t*) &firmware_timer_en, 1);
+				}
+				SendN16DataToDisplay(RESTRICT_COMM_FLAG, 0); //block communication error
+
+			}
+		  }
+		  break;
+
+		 case SD_WAIT:
+		   if (SD_info.wait_flag)
+		   {
+			 // Card detected. Go back to INIT mode
+			Set_delay(SW_SD_CARD_DLY, DLY_SD_WAIT, &SD_info.wait_flag);
+		   }
+		  break;
+		 case SD_ERR:
+		   SD_info.state = SD_INIT;
+		  break;
+
+		 default:
+		   SD_info.state = SD_INIT;
+		  break;
+	   }
+	   tx_thread_sleep(10);
+	};
+    /* USER CODE END MMC open error */
+  }
+
+/* USER CODE BEGIN fx_app_thread_entry 1*/
+
+/* USER CODE END fx_app_thread_entry 1*/
+  }
+
+/* USER CODE BEGIN 1 */
+
+ int SD_PO(char *name)
+ {
+ 	char temp_int[130];
+ 	char sd_plumd_read[256]={0,};
+ 	UINT status;
+ 	uint8_t value = 0;
+ 	 int address_plumb = 0;
+ 	unsigned long bytes_read;
+ 	//TCHAR   fwpath[16];
+
+ 	if ((FX_SUCCESS == fx_file_attributes_read(&mmc_disk, name,&attributes)))
+ 	{
+ 		memset(temp_int,0,sizeof(temp_int));
+ 		if((status = fx_file_open(&mmc_disk, &PO_file, name, FX_OPEN_FOR_READ))==FX_SUCCESS)
+ 		{
+ 			status = fx_file_read(&PO_file, &sd_plumd_read[0], 256, &bytes_read); 
+ 			if(status==FX_SUCCESS)
+ 			{
+ 				int k=0;
+ 				for(int j=0;j<=(bytes_read+1);j++)
+ 				{
+ 					if((sd_plumd_read[j]==':') )
+ 					{
+ 						address_plumb=convert_to_string(temp_int);
+ 						if(address_plumb ==1042 || address_plumb == 1040 || address_plumb==IOT_SER_NUM_ADDR || address_plumb == Token_address || address_plumb ==Aws_url_address || address_plumb == DEV_SER_NUM_ADDR)
+ 						{
+
+ 						}
+ 						else
+ 						{
+ 							return 1;
+ 						}
+ 						memset(temp_int,0,sizeof(temp_int));
+ 						k=0;
+ 						continue;
+ 					}
+ 					if((sd_plumd_read[j]==',') && address_plumb != 0)
+ 					{
+ 						if(address_plumb==1040 || address_plumb == 1042)
+ 						{
+ 							value=convert_to_string(temp_int);
+ 							EEPROM_Write(address_plumb, 0,(uint8_t*)&value,1);
+ 							memset(temp_int,0,sizeof(temp_int));
+ 							address_plumb=0;
+ 							k=0;
+ 							continue;
+ 						}
+ 						else if(address_plumb==IOT_SER_NUM_ADDR || address_plumb == Token_address || address_plumb == Aws_url_address || address_plumb == DEV_SER_NUM_ADDR)
+						{
+							if((address_plumb==IOT_SER_NUM_ADDR || address_plumb == Token_address)&& k)
+							{
+								k=36;
+							}
+							else if((address_plumb == Aws_url_address) && k)
+							{
+								k=128;
+							}
+							else if((address_plumb == DEV_SER_NUM_ADDR) && k)
+							{
+								k=18;
+							}
+							if(k)
+							{
+								EEPROM_Write(address_plumb, 0,(uint8_t*)&temp_int,k);
+							}
+							memset(temp_int,0,sizeof(temp_int));
+							address_plumb=0;
+							k=0;
+							continue;
+						}
+ 					}
+
+ 					if((address_plumb == 0)|| address_plumb==1040 || address_plumb == 1042)
+ 					{
+ 						if((sd_plumd_read[j]>=0x30)&&(sd_plumd_read[j]<=0x39))
+ 						{
+ 							temp_int[k]=sd_plumd_read[j];
+ 							k++;
+ 						}
+ 					}
+ 					else if((sd_plumd_read[j] != ' ') && (sd_plumd_read[j] != '\0'))
+ 					{
+ 						temp_int[k]=sd_plumd_read[j];
+ 						k++;
+ 					}
+
+ 				}
+ 			}
+ 		}
+ 		status = fx_file_close(&PO_file);
+ 		status = fx_file_delete(&mmc_disk,name);
+ 		status = fx_media_flush(&mmc_disk);
+ 	}
+ 	return 0;
+ }
+
+
+ int convert_to_string (char *name)
+ {
+ 	return atoi(name);
+ }
+
+ int Settings_Data_sd(void)
+ {
+ 	UINT status;
+ 	CHAR path[64];
+ 	UINT attributes;
+ 	uint8_t week;
+ 	static uint8_t initial_file=1;
+ 	static uint8_t  today_date=0;
+ 	char Filename[16] = {0};
+ 	//unsigned int  SD_bytes=0;
+ 	GetFileName(Filename);
+ 	if(SD_info.state==SD_DONE && (initial_file || (Date.Date != today_date)))
+ 	{
+ 		SD_info.state=SD_BUSY;
+ 		sprintf(path, "%u", Date.Year+2000);
+ 		status = fx_directory_information_get(&mmc_disk, path, &attributes, &size, &year, &month, &Day, &hour, &minute, &second);
+		if (status != FX_SUCCESS) {
+
+			status=fx_directory_create(&mmc_disk,path);
+			if(status != FX_SUCCESS){
+				status = fx_directory_default_set(&mmc_disk, "\\");
+				fx_media_flush(&mmc_disk);
+				return status;
+			}
+		}
+		status = fx_directory_default_set(&mmc_disk, path);
+		if (status != FX_SUCCESS)
+		{
+			status = fx_directory_default_set(&mmc_disk, "\\");
+			fx_media_flush(&mmc_disk);
+			return status;
+		}
+
+		sprintf(path,"%s",Month_name[Date.Month-1]);
+    	status = fx_directory_information_get(&mmc_disk, path, &attributes, &size, &year, &month, &Day, &hour, &minute, &second);
+		if (status != FX_SUCCESS)
+		{
+			status=fx_directory_create(&mmc_disk,path);
+				if(status != FX_SUCCESS){
+				status = fx_directory_default_set(&mmc_disk, "\\");
+				fx_media_flush(&mmc_disk);
+				return status;
+			}
+		}
+		status = fx_directory_default_set(&mmc_disk, path);
+		if (status != FX_SUCCESS)
+		{
+			status = fx_directory_default_set(&mmc_disk, "\\");
+			fx_media_flush(&mmc_disk);
+			return status;
+		}
+		week = weekOfMonth(Date.Date, Date.Month, Date.Year+2000);
+		status = fx_directory_information_get(&mmc_disk, Week_name[week-1], &attributes, &size, &year, &month, &Day, &hour, &minute, &second);
+		if (status != FX_SUCCESS)
+		{
+			status=fx_directory_create(&mmc_disk,Week_name[week-1]);
+			if(status != FX_SUCCESS){
+				status = fx_directory_default_set(&mmc_disk, "\\");
+				fx_media_flush(&mmc_disk);
+				return status;
+				}
+		}
+		status = fx_directory_default_set(&mmc_disk, Week_name[week-1]);
+		if (status != FX_SUCCESS)
+		{
+			status = fx_directory_default_set(&mmc_disk, "\\");
+			fx_media_flush(&mmc_disk);
+			return status;
+		}
+
+//    	    sprintf(path, "%u", Date.Date);
+//    	    status = fx_directory_information_get(&mmc_disk, path, &attributes, &size, &year, &month, &Day, &hour, &minute, &second);
+//    		if (status != FX_SUCCESS) {
+//    	    	status=fx_directory_create(&mmc_disk,path);
+//    	    if(status != FX_SUCCESS){
+//    	    	return status;
+//    	    }
+//    		}
+//    	    status = fx_directory_default_set(&mmc_disk, path);
+//    	    if (status != FX_SUCCESS)
+//    	    {
+//    	    	return status;
+//    	    }
+		status= fx_file_open(&mmc_disk,&PO_file,Filename, FX_OPEN_FOR_WRITE);
+ 		
+ 		if(status == FX_NOT_FOUND)
+ 		{
+ 			Settings_write_data();
+ 			fx_file_date_time_set(&mmc_disk,Filename,Date.Year,Date.Month,Date.Date,Time.Hours,Time.Minutes,Time.Seconds);
+ 			if((status = fx_file_create(&mmc_disk, Filename))!=FX_SUCCESS)
+ 			{
+ 				 status = fx_file_close(&PO_file);
+ 				status = fx_directory_default_set(&mmc_disk, "\\");
+				fx_media_flush(&mmc_disk);
+ 				 return 1;
+ 			}
+ 			if((status = fx_file_open(&mmc_disk,&PO_file,Filename, FX_OPEN_FOR_WRITE))!= FX_SUCCESS)
+ 			{
+ 				status = fx_directory_default_set(&mmc_disk, "\\");
+				fx_media_flush(&mmc_disk);
+ 				return 1;
+
+			}
+ 			status = fx_file_write(&PO_file,&Data_buffer[0], sizeof(Data_buffer));
+ 			status = fx_file_close(&PO_file);
+// 			if (vp_param_rw_str.mb_cfg.node_id == RS485_MASTER_NODE_ID)
+// 			{
+// 				if((status = fx_file_open(&mmc_disk, &PO_file, Filename, FX_OPEN_FOR_WRITE))==FX_SUCCESS)
+// 				{
+// 					status = fx_file_write (&PO_file, &Data_buffer1[0], sizeof(Data_buffer1));
+// 				}
+// 				status = fx_file_close(&PO_file);
+// 			}
+ 			if(status==FX_SUCCESS)
+ 			{
+ 				initial_file=0;
+ 				today_date=Date.Date;
+ 			}
+ 			else
+ 			{
+ 				SD_info.state = SD_INIT;
+ 				 System_Status[ERROR_FLAG_0] |= ERR_SD_CARD_FAILURE;
+ 			}
+ 		}
+ 		else if(status==FX_SUCCESS)
+ 		{
+ 			initial_file=0;
+ 			today_date=Date.Date;
+ 		}
+ 	 	status = fx_directory_default_set(&mmc_disk, "\\");
+ 		fx_media_flush(&mmc_disk);	
+ 		SD_info.state=SD_DONE;
+ 	}
+ 	return 0;
+ }
+
+ int weekOfMonth(int day, int month, int year)
+ {
+     int firstDayWeek = dayOfWeek(1, month, year);  // weekday of 1st day
+     int week = ((day + firstDayWeek - 1) / 7) + 1;
+
+     return week;
+ }
+// Using Zeller’s formula modified for Monday-as-0.
+ int dayOfWeek(int d, int m, int y)
+ {
+     if (m < 3) {
+         m += 12;
+         y -= 1;
+     }
+
+     int K = y % 100;
+     int J = y / 100;
+
+     int h = (d + (13 * (m + 1)) / 5 + K + K/4 + J/4 + 5*J) % 7;
+
+     // Zeller: 0=Saturday, 1=Sunday, 2=Monday...
+     int dow = (h + 5) % 7; // Convert so Monday = 0
+
+     return dow;
+ }
+
+/* USER CODE END 1 */

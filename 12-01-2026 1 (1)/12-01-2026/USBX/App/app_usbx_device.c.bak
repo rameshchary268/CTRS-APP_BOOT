@@ -1,0 +1,999 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file    app_usbx_device.c
+  * @author  MCD Application Team
+  * @brief   USBX Device applicative file
+  ******************************************************************************
+    * @attention
+  *
+  * Copyright (c) 2025 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+
+/* Includes ------------------------------------------------------------------*/
+#include "app_usbx_device.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include "app_usbx_host.h"
+#include "MyMain.h"
+/* USER CODE END Includes */
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+extern PCD_HandleTypeDef hpcd_USB_OTG_HS;
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+extern TX_EVENT_FLAGS_GROUP                      ux_app_EventFlag;
+extern TX_QUEUE                                  ux_app_MsgQueue_UCPD;
+TX_THREAD ux_host_app_thread,                    msc_app_thread;
+/* USER CODE END PM */
+
+/* Private variables ---------------------------------------------------------*/
+
+static ULONG storage_interface_number;
+static ULONG storage_configuration_number;
+static ULONG cdc_acm_interface_number;
+static ULONG cdc_acm_configuration_number;
+static UX_SLAVE_CLASS_STORAGE_PARAMETER storage_parameter;
+static UX_SLAVE_CLASS_CDC_ACM_PARAMETER cdc_acm_parameter;
+TX_THREAD ux_device_app_thread;
+
+/* USER CODE BEGIN PV */
+TX_THREAD ux_cdc_write_thread, ux_cdc_read_thread;
+static UCHAR ux_device_byt_pool_buffer[UX_DEVICE_APP_MEM_POOL_SIZE];
+static TX_BYTE_POOL ux_device_byte_pool;
+
+CHAR *DMSC_pointer;
+UCHAR *CDCpointer, *WR_pointer, *RD_pointer;
+UCHAR *Device_pointer;
+uint8_t thread_usb_suspend=0;
+ UCHAR *device_framework_high_speed;
+  UCHAR *device_framework_full_speed;
+ ULONG device_framework_hs_length;
+ ULONG device_framework_fs_length;
+ ULONG string_framework_length;
+ ULONG language_id_framework_length;
+ UCHAR *string_framework;
+ UCHAR *language_id_framework;
+
+ USB_INFO usb_info;
+
+
+ __ALIGN_BEGIN static const UCHAR MSC_device_frameword_full_speed[] __ALIGN_END =
+ {
+     /* Device Descriptor */
+     0x12,                               /* bLength */
+     UX_DEVICE_DESCRIPTOR_ITEM,          /* bDescriptorType = DEVICE */  //0x01
+     0x00, 0x02,                         /* bcdUSB */
+     0x00,                               /* bDeviceClass */
+     0x00,                               /* bDeviceSubClass */
+     0x00,                               /* bDeviceProtocol */
+     0x40,                               /* bMaxPacketSize0 */
+     (0x83), (0x04),     /* idVendor */
+     (0x40), (0x57),     /* idProduct */      //lo0x40
+     0x00, 0x02,                         /* bcdDevice */
+     0x01,                               /* Manufacturer */
+     0x02,                               /* Product */
+     0x03,                               /* Serial */
+     0x01,                               /* NumConfigurations */
+
+     /* Configuration Descriptor */
+     0x09, UX_CONFIGURATION_DESCRIPTOR_ITEM,                            //0x09, 0x02
+     0x20, 0x00,                         /* wTotalLength */
+     0x01,                               /* bNumInterfaces */
+     0x01,                               /* bConfigurationValue */
+     0x00,                               /* iConfiguration */
+     0xC0,                               /* bmAttributes */
+     50,                                 /* MaxPower */                                       //0x00
+
+     /* Interface Descriptor */
+     0x09, UX_INTERFACE_DESCRIPTOR_ITEM,                         //0x09, 0x04
+     0x00, 0x00, 0x02,                   /* bNumEndpoints = 2 */
+     0x08,                               /* bInterfaceClass = Mass Storage */
+     0x06,                               /* bInterfaceSubClass = SCSI Transparent */
+     0x50,                               /* bInterfaceProtocol = BOT */
+     0x00,
+
+     /* Endpoint Descriptor (Bulk IN) */
+     0x07, UX_ENDPOINT_DESCRIPTOR_ITEM,                        //0x07,0x05
+     0x81, 0x02, 0x40, 0x00, 0x00,
+
+     /* Endpoint Descriptor (Bulk OUT) */
+     0x07, UX_ENDPOINT_DESCRIPTOR_ITEM,                  //0x07,0x05
+     0x01, 0x02, 0x40, 0x00, 0x00,                                             //0x02,0x02
+ };
+
+ __ALIGN_BEGIN static const UCHAR MSC_device_frameword_high_speed[] __ALIGN_END =
+ {
+     /* Device Descriptor */
+     0x12,                               /* bLength */
+     UX_DEVICE_DESCRIPTOR_ITEM,          /* bDescriptorType = DEVICE */  //0x01
+     0x00, 0x02,                         /* bcdUSB */
+     0x00,                               /* bDeviceClass */
+     0x00,                               /* bDeviceSubClass */
+     0x00,                               /* bDeviceProtocol */
+     0x40,                               /* bMaxPacketSize0 */
+     (0x83), (0x04),     /* idVendor */
+     0x40, 0x57,     /* idProduct */      //lo0x40
+     0x00, 0x02,                         /* bcdDevice */
+     0x01,                               /* Manufacturer */
+     0x02,                               /* Product */
+     0x03,                               /* Serial */
+     0x01,                               /* NumConfigurations */
+
+     /* Configuration Descriptor */
+ 	0x0a,0x6,0x0,0x2,0x0,0x0,0x0,0x40,0x1,0x00,
+     0x09, UX_CONFIGURATION_DESCRIPTOR_ITEM,                            //0x09, 0x02
+     0x20, 0x00,                         /* wTotalLength */
+     0x01,                               /* bNumInterfaces */
+     0x01,                               /* bConfigurationValue */
+     0x00,                               /* iConfiguration */
+     0xC0,                               /* bmAttributes */
+     50,                                 /* MaxPower */                                       //0x00
+
+     /* Interface Descriptor */
+     0x09, UX_INTERFACE_DESCRIPTOR_ITEM,                         //0x09, 0x04
+     0x00, 0x00, 0x02,                   /* bNumEndpoints = 2 */
+     0x08,                               /* bInterfaceClass = Mass Storage */
+     0x06,                               /* bInterfaceSubClass = SCSI Transparent */
+     0x50,                               /* bInterfaceProtocol = BOT */
+     0x00,
+
+     /* Endpoint Descriptor (Bulk IN) */
+     0x07, UX_ENDPOINT_DESCRIPTOR_ITEM,                        //0x07,0x05
+     0x81, 0x02, 0x00, 0x02, 0x00,
+
+     /* Endpoint Descriptor (Bulk OUT) */
+     0x07, UX_ENDPOINT_DESCRIPTOR_ITEM,                  //0x07,0x05
+     0x01, 0x02, 0x00, 0x2, 0x00,                                             //0x02,0x02
+ };
+
+
+ __ALIGN_BEGIN static const UCHAR CDC_device_frameword_full_speed[] __ALIGN_END =
+ {
+     /* Device Descriptor */
+     0x12,                               /* bLength */
+     UX_DEVICE_DESCRIPTOR_ITEM,          /* bDescriptorType = DEVICE */
+     0x00, 0x02,                         /* bcdUSB = 2.00 */
+     0x02,                               /* bDeviceClass: CDC */
+     0x02,                               /* bDeviceSubClass */     //0x2
+     0x00,                               /* bDeviceProtocol */
+     0x40,                               /* bMaxPacketSize0 */
+     0x83, 0x04,     /* idVendor  = STMicroelectronics */
+     (0x40), (0x57),     /* idProduct = Virtual COM Port */
+     0x00, 0x02,                         /* bcdDevice */
+     0x01,                               /* Index of manufacturer string */
+     0x02,                               /* Index of product string */
+     0x03,                               /* Index of serial string */
+     0x01,                               /* bNumConfigurations */
+
+     /* Configuration Descriptor */
+     0x09,                               /* bLength */
+     UX_CONFIGURATION_DESCRIPTOR_ITEM,   /* bDescriptorType */   //0x02
+     0x4b, 0x00,                           /* wTotalLength */               //0x4b
+     0x02,                               /* bNumInterfaces (Comm + Data) */
+     0x01,                               /* bConfigurationValue */
+     0x00,                               /* iConfiguration */
+     0xC0,                               /* bmAttributes: self powered */
+     50,                                 /* MaxPower 100 mA */             //0
+
+     /* Communication Class Interface Descriptor */
+     0x8,0xb,0x0,0x2,0x2,0x2,0x1,0x0,
+     0x09, UX_INTERFACE_DESCRIPTOR_ITEM, /* bLength, bDescriptorType */ //0x9 ,0x4
+     0x00,                               /* bInterfaceNumber */
+     0x00,                               /* bAlternateSetting */
+     0x01,                               /* bNumEndpoints */
+     0x02,                               /* bInterfaceClass: CDC */
+     0x02,                               /* bInterfaceSubClass: ACM */
+     0x01,                               /* bInterfaceProtocol */
+     0x00,                               /* iInterface */
+
+     /* Header Functional Descriptor */
+     0x05, 0x24, 0x00, 0x10, 0x01,
+
+     /* Call Management Functional Descriptor */
+     0x05, 0x24, 0x01, 0x00, 0x01,
+
+     /* ACM Functional Descriptor */
+     0x04, 0x24, 0x02, 0x02,
+
+     /* Union Functional Descriptor */
+     0x05, 0x24, 0x06, 0x00, 0x01,
+
+     /* Endpoint Descriptor (Notification EP) */
+     0x07, UX_ENDPOINT_DESCRIPTOR_ITEM,  //0x7,0x5
+     0x82, 0x03, 0x08, 0x00, 0x5,   //0x82,0x3,0x8,0x0,0x5
+
+     /* Data Class Interface Descriptor */
+     0x09, UX_INTERFACE_DESCRIPTOR_ITEM,      //09,0x4
+     0x01, 0x00, 0x02, 0x0A, 0x00, 0x00, 0x00,
+
+     /* Endpoint Descriptor (Bulk OUT) */
+     0x07, UX_ENDPOINT_DESCRIPTOR_ITEM,  //07,0x5
+     0x01, 0x02, 0x40, 0x00, 0x00,
+
+     /* Endpoint Descriptor (Bulk IN) */
+     0x07, UX_ENDPOINT_DESCRIPTOR_ITEM, //07,0x5
+     0x81, 0x02, 0x40, 0x00, 0x00,
+ };
+
+
+ __ALIGN_BEGIN static const UCHAR CDC_device_frameword_high_speed[] __ALIGN_END =
+ {
+     /* Device Descriptor */
+     0x12,                               /* bLength */
+     UX_DEVICE_DESCRIPTOR_ITEM,          /* bDescriptorType = DEVICE */
+     0x00, 0x02,                         /* bcdUSB = 2.00 */
+     0x02,                               /* bDeviceClass: CDC */
+     0x02,                               /* bDeviceSubClass */     //0x2
+     0x00,                               /* bDeviceProtocol */
+     0x40,                               /* bMaxPacketSize0 */
+     (0x83), (0x04),     /* idVendor  = STMicroelectronics */
+     (0x40), (0x57),     /* idProduct = Virtual COM Port */
+     0x00, 0x02,                         /* bcdDevice */
+     0x01,                               /* Index of manufacturer string */
+     0x02,                               /* Index of product string */
+     0x03,                               /* Index of serial string */
+     0x01,                               /* bNumConfigurations */
+
+     /* Configuration Descriptor */
+     0xa,0x6,0x0,0x2,0x0,0x0,0x0,0x40,0x1,0x0,
+     0x09,                               /* bLength */
+     UX_CONFIGURATION_DESCRIPTOR_ITEM,   /* bDescriptorType */   //0x02
+     0x4b, 0x00,                           /* wTotalLength */               //0x4b
+     0x02,                               /* bNumInterfaces (Comm + Data) */
+     0x01,                               /* bConfigurationValue */
+     0x00,                               /* iConfiguration */
+     0xC0,                               /* bmAttributes: self powered */
+     50,                                 /* MaxPower 100 mA */             //0
+
+     /* Communication Class Interface Descriptor */
+     0x8,0xb,0x0,0x2,0x2,0x2,0x1,0x0,
+     0x09, UX_INTERFACE_DESCRIPTOR_ITEM, /* bLength, bDescriptorType */  //0x9 ,0x4
+     0x00,                               /* bInterfaceNumber */
+     0x00,                               /* bAlternateSetting */
+     0x01,                               /* bNumEndpoints */
+     0x02,                               /* bInterfaceClass: CDC */
+     0x02,                               /* bInterfaceSubClass: ACM */
+     0x01,                               /* bInterfaceProtocol */
+     0x00,                               /* iInterface */
+
+     /* Header Functional Descriptor */
+     0x05, 0x24, 0x00, 0x10, 0x01,
+
+     /* Call Management Functional Descriptor */
+     0x05, 0x24, 0x01, 0x00, 0x01,
+
+     /* ACM Functional Descriptor */
+     0x04, 0x24, 0x02, 0x02,
+
+     /* Union Functional Descriptor */
+     0x05, 0x24, 0x06, 0x00, 0x01,
+
+     /* Endpoint Descriptor (Notification EP) */
+     0x07, UX_ENDPOINT_DESCRIPTOR_ITEM,  //0x7,0x5
+     0x82, 0x03, 0x08, 0x00, 0x5,   //0x82,0x3,0x8,0x0,0x5
+
+     /* Data Class Interface Descriptor */
+     0x09, UX_INTERFACE_DESCRIPTOR_ITEM,      //09,0x4
+     0x01, 0x00, 0x02, 0x0A, 0x00, 0x00, 0x00,
+
+     /* Endpoint Descriptor (Bulk OUT) */
+     0x07, UX_ENDPOINT_DESCRIPTOR_ITEM,  //07,0x5
+     0x01, 0x02, 0x00, 0x02, 0x00,
+
+     /* Endpoint Descriptor (Bulk IN) */
+     0x07, UX_ENDPOINT_DESCRIPTOR_ITEM, //07,0x5
+     0x81, 0x02, 0x00, 0x02, 0x00,
+ };
+
+/* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
+static VOID app_ux_device_thread_entry(ULONG thread_input);
+/* USER CODE BEGIN PFP */
+
+/* USER CODE END PFP */
+
+/**
+  * @brief  Application USBX Device Initialization.
+  * @param  memory_ptr: memory pointer
+  * @retval status
+  */
+
+/**
+  * @brief  Function implementing app_ux_device_thread_entry.
+  * @param  thread_input: User thread input parameter.
+  * @retval none
+  */
+
+/* USER CODE BEGIN 1 */
+
+VOID app_ux_device_thread_entry(ULONG thread_input)
+{
+	HAL_GPIO_WritePin(GPIOA, GPIO_ODR_OD9, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOC, GPIO_ODR_OD1, GPIO_PIN_RESET);
+//	HAL_GPIO_WritePin(GPIOA, GPIO_ODR_OD9, GPIO_PIN_SET);
+	//HAL_GPIO_WritePin(GPIOC, GPIO_ODR_OD1, GPIO_PIN_RESET);
+//	usb_info.new_mode=USB_HOST;
+	while(1)
+	{
+		switch(usb_info.state)
+		{
+		case USB_INIT:
+			if(usb_info.new_mode==USB_MSC)
+			{
+				tx_thread_suspend(&ux_cdc_read_thread);
+				//tx_thread_suspend(&ux_cdc_write_thread);
+				usb_info.mode=USB_MSC;
+				memset(ux_device_byt_pool_buffer, 0,sizeof(ux_device_byt_pool_buffer));
+				if (tx_byte_pool_create(&ux_device_byte_pool, "Ux memory pool",ux_device_byt_pool_buffer,UX_DEVICE_APP_MEM_POOL_SIZE) != TX_SUCCESS)
+				{
+					/* USER CODE BEGIN UX_Device_Byte_Pool_Error */
+					 tx_byte_pool_delete(&ux_device_byte_pool);
+						 tx_thread_sleep(10);
+					/* USER CODE END UX_Device_Byte_Pool_Error */
+				}
+				else
+				{
+					/* USER CODE BEGIN UX_Device_Byte_Pool_Success */
+					/* USER CODE END UX_Device_Byte_Pool_Success */
+					if (MX_USBX_MSC_Device_Init((VOID*) &ux_device_byte_pool) != UX_SUCCESS) {
+						/* USER CODE BEGIN  MX_USBX_Device_Init_Error */
+						while (1)
+						{
+						}
+						/* USER CODE END  MX_USBX_Device_Init_Error */
+					}
+					else {
+						usb_info.state=USB_MSC_START;
+					}
+					/* USER CODE BEGIN  MX_USBX_Device_Init_Success */
+
+					/* USER CODE END  MX_USBX_Device_Init_Success */
+				}
+
+			}
+			else if(usb_info.new_mode==USB_CDC)
+			{
+				usb_info.mode=USB_CDC;
+				 memset(ux_device_byt_pool_buffer,0,sizeof(ux_device_byt_pool_buffer));
+				if (tx_byte_pool_create(&ux_device_byte_pool, "Ux memory pool", ux_device_byt_pool_buffer, UX_DEVICE_APP_MEM_POOL_SIZE) != TX_SUCCESS)
+				  {
+					/* USER CODE BEGIN UX_Device_Byte_Pool_Error */
+					 tx_byte_pool_delete(&ux_device_byte_pool);
+						 tx_thread_sleep(10);
+					/* USER CODE END UX_Device_Byte_Pool_Error */
+				  }
+				  else
+				  {
+					/* USER CODE BEGIN UX_Device_Byte_Pool_Success */
+					/* USER CODE END UX_Device_Byte_Pool_Success */
+					if (MX_USBX_Device_CDC_Init((VOID *)&ux_device_byte_pool) != UX_SUCCESS)
+					{
+					  /* USER CODE BEGIN  MX_USBX_Device_Init_Error */
+					  while(1)
+					  {
+					  }
+					  /* USER CODE END  MX_USBX_Device_Init_Error */
+					}
+					else
+					{
+						usb_info.state=USB_CDC_DONE;
+					}
+					//tx_thread_resume(&ux_cdc_write_thread);
+					tx_thread_resume(&ux_cdc_read_thread);
+					/* USER CODE BEGIN  MX_USBX_Device_Init_Success */
+
+					/* USER CODE END  MX_USBX_Device_Init_Success */
+				  }
+			}
+			else if(usb_info.new_mode==USB_HOST)
+			{
+
+				//tx_thread_suspend(&ux_cdc_write_thread);
+				tx_thread_suspend(&ux_cdc_read_thread);
+				//HAL_GPIO_WritePin(GPIOC, GPIO_ODR_OD1, GPIO_PIN_SET);
+				HAL_GPIO_WritePin(GPIOA, GPIO_ODR_OD9, GPIO_PIN_SET);
+				HAL_GPIO_WritePin(GPIOA, GPIO_ODR_OD12, GPIO_PIN_RESET);
+				HAL_GPIO_WritePin(GPIOA, GPIO_ODR_OD11, GPIO_PIN_RESET);
+				//HAL_Delay(50);
+				tx_thread_sleep(50);
+				if ((MX_USBX_Host_Init()) != UX_SUCCESS)
+				{
+				  /* USER CODE BEGIN  MX_USBX_Device_Init_Error */
+				  while(1)
+				  {
+				  }
+				  /* USER CODE END  MX_USBX_Device_Init_Error */
+				}
+				else
+				{
+					usb_info.state=USB_HOST_DONE;
+				}
+				/* USER CODE BEGIN  MX_USBX_Device_Init_Success */
+				usb_info.host_mode=1;
+				usb_info.mode=USB_HOST;
+				/* USER CODE END  MX_USBX_Device_Init_Success */
+
+			}
+
+			break;
+
+		case USB_DE_INIT:
+			if((usb_info.mode == USB_MSC))
+			{
+				USBX_MSC_Device_Deint();
+			}
+			else if(usb_info.mode==USB_CDC)
+			{
+				//tx_thread_suspend(&ux_cdc_write_thread);
+				tx_thread_suspend(&ux_cdc_read_thread);
+				USBX_CDC_Device_Deint();
+			}
+			else if(usb_info.mode==USB_HOST)
+			{
+
+				MX_USBX_Host_DeInit();
+				usb_info.host_mode=0;
+				HAL_GPIO_WritePin(GPIOA, GPIO_ODR_OD9, GPIO_PIN_RESET);
+				//HAL_GPIO_WritePin(GPIOC, GPIO_ODR_OD1, GPIO_PIN_RESET);
+				//UI_info.state=UI_INIT;
+			}
+			usb_info.state=USB_INIT;
+			break;
+
+		case USB_MSC_START:
+			if(USB_DETECT())
+			{
+				if((vp_rt_wr_str.LoginStatus==2)||((login_cred[1].admin_id[0] ==0)||(login_cred[1].admin_id[0] ==255)))
+				{
+					/* Start the USB device */
+					  HAL_PCD_Start(&hpcd_USB_OTG_HS);
+					  usb_info.state=USB_MSC_STOP;
+				}
+				else
+				{
+					HAL_PCD_Stop(&hpcd_USB_OTG_HS);
+				}
+			}
+			else
+			{
+				HAL_PCD_Stop(&hpcd_USB_OTG_HS);
+				//nothing
+			}
+			break;
+		case USB_MSC_STOP:
+			if(USB_DETECT())
+			{
+				//timer need to run
+			}
+			else
+			{
+				HAL_PCD_Stop(&hpcd_USB_OTG_HS);
+				SD_info.File_Available=1;
+				usb_info.state=USB_MSC_START;
+			}
+			break;
+		case USB_CDC_DONE:
+
+			break;
+		case USB_HOST_DONE:
+
+			break;
+		case USB_ERR:
+			break;
+		case USB_HALT:
+			break;
+		default:
+			break;
+		}
+		tx_thread_sleep(10);
+	}
+}
+
+UINT MX_USBX_MSC_Device_Init(VOID *memory_ptr)
+{
+   UINT ret = UX_SUCCESS;
+  device_framework_high_speed = (UCHAR *) MSC_device_frameword_high_speed;
+  device_framework_hs_length = sizeof(MSC_device_frameword_high_speed);
+  /* Get Device Framework Full Speed and get the length */
+  device_framework_full_speed =(UCHAR *)MSC_device_frameword_full_speed;
+  device_framework_fs_length = sizeof(MSC_device_frameword_full_speed);
+  /* Get String Framework and get the length */
+  string_framework = USBD_Get_String_Framework(&string_framework_length);
+
+  /* Get Language Id Framework and get the length */
+ language_id_framework = USBD_Get_Language_Id_Framework(&language_id_framework_length);
+  TX_BYTE_POOL *byte_pool = (TX_BYTE_POOL*)memory_ptr;
+
+  /* USER CODE BEGIN MX_USBX_Device_Init0 */
+
+  /* USER CODE END MX_USBX_Device_Init0 */
+  /* Allocate the stack for USBX Memory */
+  if (tx_byte_allocate(byte_pool, (VOID **) &DMSC_pointer,
+                       USBX_DEVICE_MEMORY_STACK_SIZE, TX_NO_WAIT) != TX_SUCCESS)
+  {
+    /* USER CODE BEGIN USBX_ALLOCATE_STACK_ERROR */
+    return TX_POOL_ERROR;
+    /* USER CODE END USBX_ALLOCATE_STACK_ERROR */
+  }
+
+  /* Initialize USBX Memory */
+  if (ux_system_initialize(DMSC_pointer, USBX_DEVICE_MEMORY_STACK_SIZE, UX_NULL, 0) != UX_SUCCESS)
+  {
+    /* USER CODE BEGIN USBX_SYSTEM_INITIALIZE_ERROR */
+    return UX_ERROR;
+    /* USER CODE END USBX_SYSTEM_INITIALIZE_ERROR */
+  }
+
+  /* Get Device Framework High Speed and get the length */
+  /* Install the device portion of USBX */
+  if (ux_device_stack_initialize((UCHAR*)device_framework_high_speed,
+                                 device_framework_hs_length,
+								 (UCHAR*) device_framework_full_speed,
+                                 device_framework_fs_length,
+                                 string_framework,
+                                 string_framework_length,
+                                 language_id_framework,
+                                 language_id_framework_length,
+                                 UX_NULL) != UX_SUCCESS)
+  {
+    /* USER CODE BEGIN USBX_DEVICE_INITIALIZE_ERROR */
+    return UX_ERROR;
+    /* USER CODE END USBX_DEVICE_INITIALIZE_ERROR */
+  }
+
+  /* Initialize the storage class parameters for the device */
+  storage_parameter.ux_slave_class_storage_instance_activate   = USBD_STORAGE_Activate;
+  storage_parameter.ux_slave_class_storage_instance_deactivate = USBD_STORAGE_Deactivate;
+
+  /* Store the number of LUN in this device storage instance */
+  storage_parameter.ux_slave_class_storage_parameter_number_lun = STORAGE_NUMBER_LUN;
+
+  /* Initialize the storage class parameters for reading/writing to the Flash Disk */
+  storage_parameter.ux_slave_class_storage_parameter_lun[0].
+    ux_slave_class_storage_media_last_lba = USBD_STORAGE_GetMediaLastLba();
+
+  storage_parameter.ux_slave_class_storage_parameter_lun[0].
+    ux_slave_class_storage_media_block_length = USBD_STORAGE_GetMediaBlocklength();
+
+  storage_parameter.ux_slave_class_storage_parameter_lun[0].
+    ux_slave_class_storage_media_type = 0;
+
+  storage_parameter.ux_slave_class_storage_parameter_lun[0].
+    ux_slave_class_storage_media_removable_flag = STORAGE_REMOVABLE_FLAG;
+
+  storage_parameter.ux_slave_class_storage_parameter_lun[0].
+    ux_slave_class_storage_media_read_only_flag = STORAGE_READ_ONLY;
+
+  storage_parameter.ux_slave_class_storage_parameter_lun[0].
+    ux_slave_class_storage_media_read = USBD_STORAGE_Read;
+
+  storage_parameter.ux_slave_class_storage_parameter_lun[0].
+    ux_slave_class_storage_media_write = USBD_STORAGE_Write;
+
+  storage_parameter.ux_slave_class_storage_parameter_lun[0].
+    ux_slave_class_storage_media_flush = USBD_STORAGE_Flush;
+
+  storage_parameter.ux_slave_class_storage_parameter_lun[0].
+    ux_slave_class_storage_media_status = USBD_STORAGE_Status;
+
+  storage_parameter.ux_slave_class_storage_parameter_lun[0].
+    ux_slave_class_storage_media_notification = USBD_STORAGE_Notification;
+
+  /* USER CODE BEGIN STORAGE_PARAMETER */
+
+  /* USER CODE END STORAGE_PARAMETER */
+
+  /* Get storage configuration number */
+  storage_configuration_number = USBD_Get_Configuration_Number(CLASS_TYPE_MSC, 0);
+
+  /* Find storage interface number */
+  storage_interface_number = USBD_Get_Interface_Number(CLASS_TYPE_MSC, 0);
+
+  /* Initialize the device storage class */
+  if (ux_device_stack_class_register(_ux_system_slave_class_storage_name,
+                                     ux_device_class_storage_entry,
+                                     storage_configuration_number,
+                                     storage_interface_number,
+                                     &storage_parameter) != UX_SUCCESS)
+  {
+    /* USER CODE BEGIN USBX_DEVICE_STORAGE_REGISTER_ERROR */
+    return UX_ERROR;
+    /* USER CODE END USBX_DEVICE_STORAGE_REGISTER_ERROR */
+  }
+
+  USBX_APP_Device_Init();
+
+  return ret;
+}
+
+UINT MX_USBX_Device_Init(VOID *memory_ptr)
+{
+	UCHAR *pointer;
+	  TX_BYTE_POOL *byte_pool = (TX_BYTE_POOL*)memory_ptr;
+
+	  /* USER CODE BEGIN MX_USBX_Device_Init0 */
+
+	  /* USER CODE END MX_USBX_Device_Init0 */
+	  /* Allocate the stack for USBX Memory */
+	  if (tx_byte_allocate(byte_pool, (VOID **) &Device_pointer,
+	                       USBX_DEVICE_MEMORY_STACK_SIZE, TX_NO_WAIT) != TX_SUCCESS)
+	  {
+	    /* USER CODE BEGIN USBX_ALLOCATE_STACK_ERROR */
+	    return TX_POOL_ERROR;
+	    /* USER CODE END USBX_ALLOCATE_STACK_ERROR */
+	  }
+	  if (tx_thread_create(&ux_device_app_thread, UX_DEVICE_APP_THREAD_NAME, app_ux_device_thread_entry,
+	                         0, Device_pointer, UX_DEVICE_APP_THREAD_STACK_SIZE, UX_DEVICE_APP_THREAD_PRIO,
+	                         UX_DEVICE_APP_THREAD_PREEMPTION_THRESHOLD, UX_DEVICE_APP_THREAD_TIME_SLICE,
+	                         UX_DEVICE_APP_THREAD_START_OPTION) != TX_SUCCESS)
+	    {
+	      /* USER CODE BEGIN MAIN_THREAD_CREATE_ERROR */
+	         return TX_THREAD_ERROR;
+	      /* USER CODE END MAIN_THREAD_CREATE_ERROR */
+	    }
+//	  if(tx_byte_allocate(byte_pool, (VOID **)&WR_pointer, 1024, TX_NO_WAIT) != TX_SUCCESS)
+//	   {
+//		 return TX_POOL_ERROR;
+//	   }
+//	   /* Create the UX TX thread */
+//	   if(tx_thread_create(&ux_cdc_write_thread, "cdc_acm_write_usbx_app_thread_entry", usbx_cdc_acm_write_thread_entry, 1, WR_pointer, 1024, 20, 20, TX_NO_TIME_SLICE, TX_AUTO_START) != TX_SUCCESS)
+//	   {
+//		 return TX_THREAD_ERROR;
+//	   }
+
+	   if(tx_byte_allocate(byte_pool, (VOID **)&RD_pointer, 2048*5, TX_NO_WAIT) != TX_SUCCESS)
+	   {
+		 return TX_POOL_ERROR;
+	   }
+	   /* Create the UX TX thread */
+	   if(tx_thread_create(&ux_cdc_read_thread, "cdc_acm_read_usbx_app_thread_entry", usbx_cdc_acm_read_thread_entry, 1, RD_pointer, 2048*5, 20, 20, TX_NO_TIME_SLICE, TX_AUTO_START) != TX_SUCCESS)
+	   {
+		 return TX_THREAD_ERROR;
+	   }
+
+	   /* Allocate the stack for host application main thread */
+	    /* USER CODE BEGIN MX_USBX_Host_Init1 */
+	      if (tx_byte_allocate(byte_pool, (VOID **) &pointer,
+	                           UX_HOST_APP_THREAD_STACK_SIZE*2, TX_NO_WAIT) != TX_SUCCESS)
+	      {
+	        return TX_POOL_ERROR;
+	      }
+
+	      /* Create the storage applicative process thread */
+	      if (tx_thread_create(&msc_app_thread, "MSC App thread", msc_process_thread_entry,
+	                           0, pointer, UX_HOST_APP_THREAD_STACK_SIZE*2, 30, 30, 0,
+	                           TX_AUTO_START) != TX_SUCCESS)
+	      {
+	        return TX_THREAD_ERROR;
+	      }
+
+	      /* Allocate Memory for the ux_app_Queue_UCPD  */
+	       if (tx_byte_allocate(byte_pool, (VOID **) &pointer,
+	                            1 * sizeof(ULONG), TX_NO_WAIT) != TX_SUCCESS)
+	       {
+	         return TX_POOL_ERROR;
+	       }
+
+	       /* Create the MsgQueue for ucpd_app_thread   */
+	       if (tx_queue_create(&ux_app_MsgQueue_UCPD, "Message Queue UCPD", TX_1_ULONG,
+	                           pointer, 1 * sizeof(ULONG)) != TX_SUCCESS)
+	       {
+	         return TX_QUEUE_ERROR;
+	       }
+	       /* Create the event flags group */
+	       if (tx_event_flags_create(&ux_app_EventFlag, "Event Flag") != TX_SUCCESS)
+	       {
+	         return TX_GROUP_ERROR;
+	       }
+	      /* USER CODE END MX_USBX_Host_Init1 */
+	  return 0;
+}
+
+
+VOID USBX_APP_Device_Init(VOID)
+{
+  /* USER CODE BEGIN USB_Device_Init_PreTreatment_0 */
+  /* USER CODE END USB_Device_Init_PreTreatment_0 */
+
+  /* USB_OTG_HS init function */
+  MX_USB_OTG_HS_PCD_Init();
+
+  /* USER CODE BEGIN USB_Device_Init_PreTreatment_1 */
+ HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_HS, 0, USBD_MAX_EP0_SIZE / 4);
+  HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_HS, 1, USBD_CDCACM_EPIN_HS_MPS / 4);
+  HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_HS, 2, USBD_CDCACM_EPINCMD_HS_MPS / 4);
+  /* USER CODE END USB_Device_Init_PreTreatment_1 */
+
+  /* initialize the device controller driver*/
+  _ux_dcd_stm32_initialize((ULONG)USB_OTG_HS, (ULONG)&hpcd_USB_OTG_HS);
+
+  /* USER CODE BEGIN USB_Device_Init_PostTreatment */
+  /* USER CODE END USB_Device_Init_PostTreatment */
+}
+
+UINT MX_USBX_Device_CDC_Init(VOID *memory_ptr)
+{
+	  UINT ret = UX_SUCCESS;
+
+	  /* Get Device Framework High Speed and get the length */
+	  device_framework_high_speed = (UCHAR *) CDC_device_frameword_high_speed;
+	  device_framework_hs_length = sizeof(CDC_device_frameword_high_speed);
+	  /* Get Device Framework Full Speed and get the length */
+	  device_framework_full_speed =(UCHAR *)CDC_device_frameword_full_speed;
+	  device_framework_fs_length = sizeof(CDC_device_frameword_full_speed);
+	  /* Get String Framework and get the length */
+	  string_framework = USBD_Get_String_Framework(&string_framework_length);
+
+	   				  				  /* Get Language Id Framework and get the length */
+	   			language_id_framework = USBD_Get_Language_Id_Framework(&language_id_framework_length);
+
+	  TX_BYTE_POOL *byte_pool = (TX_BYTE_POOL*)memory_ptr;
+
+	  /* USER CODE BEGIN MX_USBX_Device_Init0 */
+
+	  /* USER CODE END MX_USBX_Device_Init0 */
+	  /* Allocate the stack for USBX Memory */
+	  if (tx_byte_allocate(byte_pool, (VOID **) &CDCpointer,
+	                       USBX_DEVICE_MEMORY_STACK_SIZE, TX_NO_WAIT) != TX_SUCCESS)
+	  {
+	    /* USER CODE BEGIN USBX_ALLOCATE_STACK_ERROR */
+	    return TX_POOL_ERROR;
+	    /* USER CODE END USBX_ALLOCATE_STACK_ERROR */
+	  }
+	  /* Initialize USBX Memory */
+	  if (ux_system_initialize(CDCpointer, USBX_DEVICE_MEMORY_STACK_SIZE, UX_NULL, 0) != UX_SUCCESS)
+	  {
+	    /* USER CODE BEGIN USBX_SYSTEM_INITIALIZE_ERROR */
+	    return UX_ERROR;
+	    /* USER CODE END USBX_SYSTEM_INITIALIZE_ERROR */
+	  }
+
+	  /* Install the device portion of USBX */
+	  if (ux_device_stack_initialize((UCHAR*)device_framework_high_speed,
+			  device_framework_hs_length,
+			  (UCHAR*)device_framework_full_speed,
+	                                 device_framework_fs_length,
+	                                 string_framework,
+	                                 string_framework_length,
+	                                 language_id_framework,
+	                                 language_id_framework_length,
+	                                 UX_NULL) != UX_SUCCESS)
+	  {
+	    /* USER CODE BEGIN USBX_DEVICE_INITIALIZE_ERROR */
+	    return UX_ERROR;
+	    /* USER CODE END USBX_DEVICE_INITIALIZE_ERROR */
+	  }
+
+	  /* Initialize the cdc acm class parameters for the device */
+	  cdc_acm_parameter.ux_slave_class_cdc_acm_instance_activate   = USBD_CDC_ACM_Activate;
+	  cdc_acm_parameter.ux_slave_class_cdc_acm_instance_deactivate = USBD_CDC_ACM_Deactivate;
+	  cdc_acm_parameter.ux_slave_class_cdc_acm_parameter_change    = USBD_CDC_ACM_ParameterChange;
+
+	  /* USER CODE BEGIN CDC_ACM_PARAMETER */
+
+	  /* USER CODE END CDC_ACM_PARAMETER */
+
+	  /* Get cdc acm configuration number */
+	  cdc_acm_configuration_number = USBD_Get_Configuration_Number(CLASS_TYPE_CDC_ACM, 0);
+
+	  /* Find cdc acm interface number */
+	  cdc_acm_interface_number = USBD_Get_Interface_Number(CLASS_TYPE_CDC_ACM, 0);
+
+	  /* Initialize the device cdc acm class */
+	  if (ux_device_stack_class_register(_ux_system_slave_class_cdc_acm_name,
+	                                     ux_device_class_cdc_acm_entry,
+	                                     cdc_acm_configuration_number,
+	                                     cdc_acm_interface_number,
+	                                     &cdc_acm_parameter) != UX_SUCCESS)
+	  {
+	    /* USER CODE BEGIN USBX_DEVICE_CDC_ACM_REGISTER_ERROR */
+	    return UX_ERROR;
+	    /* USER CODE END USBX_DEVICE_CDC_ACM_REGISTER_ERROR */
+	  }
+
+	  /* USER CODE BEGIN MX_USBX_Device_Init1 */
+	   USBX_APP_Device_Init();
+	   HAL_PCD_Start(&hpcd_USB_OTG_HS);
+    /* Allocate memory for the UX RX thread */
+     /* Allocate memory for the UX TX thread */
+
+    /* USER CODE END MX_USBX_Device_Init1 */
+    return ret;
+  }
+
+#define USB_AHB_IDLE_TIMEOUT_MS    200
+#define USB_CSRST_TIMEOUT_MS       200
+#define USB_FIFO_FLUSH_TIMEOUT_MS  100
+#define USB_RECOVER_DELAY_MS       5
+
+UINT USBX_MSC_Device_Deint(VOID)
+{
+	uint8_t t=0;
+	UINT status = UX_SUCCESS;
+	HAL_NVIC_DisableIRQ(OTG_HS_IRQn);
+	//Soft disconnect device
+	USB_OTG_GlobalTypeDef *USBx = hpcd_USB_OTG_HS.Instance;
+	  uint32_t USBx_BASE = (uint32_t)USBx;
+	USBx_DEVICE->DCTL |= USB_OTG_DCTL_SDIS;
+	HAL_Delay(10);
+	HAL_PCD_Stop(&hpcd_USB_OTG_HS);
+
+	 status = ux_device_stack_class_unregister(_ux_system_slave_class_storage_name,ux_device_class_storage_entry);
+	     if (status != UX_SUCCESS)
+	     {
+	         /* USER CODE BEGIN USBX_DEVICE_STORAGE_UNREGISTER_ERROR */
+	         return UX_ERROR;
+	         /* USER CODE END USBX_DEVICE_STORAGE_UNREGISTER_ERROR */
+	     }
+	     status =  ux_device_stack_uninitialize();
+	     if (status != UX_SUCCESS)
+		 {
+			 /* USER CODE BEGIN USBX_DEVICE_STORAGE_UNREGISTER_ERROR */
+			 return UX_ERROR;
+			 /* USER CODE END USBX_DEVICE_STORAGE_UNREGISTER_ERROR */
+		 }
+	 //ux_device_stack_interface_delete(_ux_system_slave);
+	 ux_system_uninitialize();
+	 HAL_PCD_DeInit(&hpcd_USB_OTG_HS);
+	 if (status != UX_SUCCESS)
+	 {
+		 /* USER CODE BEGIN USBX_DEVICE_STORAGE_UNREGISTER_ERROR */
+		 return UX_ERROR;
+		 /* USER CODE END USBX_DEVICE_STORAGE_UNREGISTER_ERROR */
+	 }
+	// USB_CoreReset(hpcd_USB_OTG_HS.Instance);
+//	 for (uint8_t ep = 0x00; ep < 0x10; ep++)
+//	 {
+//		 HAL_PCD_EP_Flush(&hpcd_USB_OTG_HS, ep);
+//	 }
+
+
+
+	 __HAL_RCC_USB_OTG_HS_FORCE_RESET();
+	     HAL_Delay(10);  /* or tx_thread_sleep(1) if inside ThreadX context */
+	     __HAL_RCC_USB_OTG_HS_RELEASE_RESET();
+
+	     /* 3. Disable and re-enable clock (optional but recommended) */
+	 	// Reset OTG core
+
+	     __HAL_RCC_USB_OTG_HS_CLK_DISABLE();
+	     __HAL_RCC_USBPHYC_CLK_DISABLE();
+	     HAL_Delay(10);
+	     __HAL_RCC_USB_OTG_HS_CLK_ENABLE();
+	     __HAL_RCC_USBPHYC_CLK_ENABLE();
+	     HAL_Delay(10);
+	     __HAL_RCC_USB_OTG_HS_CLK_DISABLE();
+		 __HAL_RCC_USBPHYC_CLK_DISABLE();
+	     // 1. Enable USB clocks (powers PHY)
+	     __HAL_RCC_USB_OTG_HS_CLK_ENABLE();
+	     __HAL_RCC_USBPHYC_CLK_ENABLE();
+	     HAL_Delay(10);
+
+	     // 2. Enable USB PHY power domain
+	     HAL_Delay(10);
+	     __HAL_RCC_USB_OTG_HS_CLK_ENABLE();
+	    	     __HAL_RCC_USBPHYC_CLK_ENABLE();
+	    	     HAL_Delay(10);
+
+	   /*  Wait for AHB idle */
+//	     if (USBx->GRSTCTL & USB_OTG_GRSTCTL_CSRST) {
+//	         /* toggle USB clock & PHY */
+//	    	 __HAL_RCC_USB_OTG_HS_CLK_DISABLE();
+//	         HAL_Delay(USB_RECOVER_DELAY_MS);
+//	         __HAL_RCC_USB_OTG_HS_CLK_ENABLE();
+//	         HAL_Delay(USB_RECOVER_DELAY_MS);
+//
+//	     }
+	     uint32_t timeout = 0;
+	     /* 1. Disable global interrupts */
+	        USBx->GAHBCFG &= ~USB_OTG_GAHBCFG_GINT;
+
+	        /* 4. Flush TX FIFO */
+	        USBx->GRSTCTL |= USB_OTG_GRSTCTL_TXFFLSH;
+	        while (USBx->GRSTCTL & USB_OTG_GRSTCTL_TXFFLSH) {
+	            if (++timeout > 5000) return 1;   // Safety timeout
+	        }
+
+	        /* 5. Flush RX FIFO */
+	        timeout = 0;
+	        USBx->GRSTCTL |= USB_OTG_GRSTCTL_RXFFLSH;
+	        while (USBx->GRSTCTL & USB_OTG_GRSTCTL_RXFFLSH) {
+	            if (++timeout > 5000) return 1;
+	        }
+
+	        /* 6. Wait for AHB idle */
+	        timeout = 0;
+	        while (!(USBx->GRSTCTL & USB_OTG_GRSTCTL_AHBIDL)) {
+	            if (++timeout > 5000) return 1;
+	        }
+
+	        /* 7. Apply OTG Core Reset (CSRST) */
+	        timeout = 0;
+	        USBx->GRSTCTL |= USB_OTG_GRSTCTL_CSRST;
+	        while (USBx->GRSTCTL & USB_OTG_GRSTCTL_CSRST) {
+	            if (++timeout > 5000) return 1;
+	        }
+	        HAL_Delay(5);
+
+
+	     /* 8) Set HOST mode */
+	     USBx->GUSBCFG &= ~USB_OTG_GUSBCFG_FDMOD;  // clear force device mode
+	     HAL_Delay(20);
+	 	HAL_NVIC_EnableIRQ(OTG_HS_IRQn);
+	     _ux_dcd_stm32_uninitialize((ULONG)USB_OTG_HS, (ULONG)&hpcd_USB_OTG_HS);
+	 if(DMSC_pointer)
+	 {
+		 tx_byte_release(DMSC_pointer);
+		 DMSC_pointer=NULL;
+	 }
+	 tx_byte_pool_delete(&ux_device_byte_pool);
+	 tx_thread_sleep(10);
+	 return UX_SUCCESS;
+}
+
+
+UINT USBX_CDC_Device_Deint(VOID)
+{
+	UINT status = UX_SUCCESS;
+	HAL_PCD_Stop(&hpcd_USB_OTG_HS);
+
+	 status = ux_device_stack_class_unregister(_ux_system_slave_class_cdc_acm_name,ux_device_class_cdc_acm_entry);
+	 if (status != UX_SUCCESS)
+	 {
+		 /* USER CODE BEGIN USBX_DEVICE_STORAGE_UNREGISTER_ERROR */
+		 return UX_ERROR;
+		 /* USER CODE END USBX_DEVICE_STORAGE_UNREGISTER_ERROR */
+	 }
+	 //ux_device_stack_disconnect();
+	 status =  ux_device_stack_uninitialize();
+	 if (status != UX_SUCCESS)
+	 {
+		 /* USER CODE BEGIN USBX_DEVICE_STORAGE_UNREGISTER_ERROR */
+		 return UX_ERROR;
+		 /* USER CODE END USBX_DEVICE_STORAGE_UNREGISTER_ERROR */
+	 }
+	 ux_system_uninitialize();
+	 HAL_PCD_DeInit(&hpcd_USB_OTG_HS);
+	 for (uint8_t ep = 0x00; ep < 0x10; ep++)
+	 {
+		 HAL_PCD_EP_Flush(&hpcd_USB_OTG_HS, ep);
+	 }
+	 __HAL_RCC_USB_OTG_HS_FORCE_RESET();
+		 HAL_Delay(2);  /* or tx_thread_sleep(1) if inside ThreadX context */
+		 __HAL_RCC_USB_OTG_HS_RELEASE_RESET();
+
+		 /* 3. Disable and re-enable clock (optional but recommended) */
+		 __HAL_RCC_USB_OTG_HS_CLK_DISABLE();
+		 HAL_Delay(1);
+		 __HAL_RCC_USB_OTG_HS_CLK_ENABLE();
+		 _ux_dcd_stm32_uninitialize((ULONG)USB_OTG_HS, (ULONG)&hpcd_USB_OTG_HS);
+	 if(CDCpointer)
+	 {
+		 tx_byte_release(CDCpointer);
+		 CDCpointer=NULL;
+	 }
+	 tx_byte_pool_delete(&ux_device_byte_pool);
+	 tx_thread_sleep(10);
+	 return UX_SUCCESS;
+}
+
+/* USER CODE END 1 */

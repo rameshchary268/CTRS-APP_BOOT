@@ -1,0 +1,2 @@
+../srrc/Crc.c:80:16:crc16_ccitt	24	static
+../srrc/Crc.c:91:16:crc16_ccitt_bin	32	static

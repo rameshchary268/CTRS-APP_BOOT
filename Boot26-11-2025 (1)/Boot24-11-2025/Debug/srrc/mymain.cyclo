@@ -1,0 +1,4 @@
+../srrc/mymain.c:23:6:Set_delay	1
+../srrc/mymain.c:46:6:TimeBase_Gen	4
+../srrc/mymain.c:63:6:my_init	2
+../srrc/mymain.c:76:6:my_func	1

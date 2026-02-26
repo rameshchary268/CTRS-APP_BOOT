@@ -1,0 +1,4 @@
+../Core/Src/app_threadx.c:80:6:App_ThreadX_Init	56	static
+../Core/Src/app_threadx.c:116:6:MX_ThreadX_Init	8	static
+../Core/Src/app_threadx.c:131:6:my_main_thread	16	static
+../Core/Src/app_threadx.c:154:6:no_data_timer_callback	24	static

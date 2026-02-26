@@ -1,0 +1,103 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file    ux_host_msc.h
+  * @author  MCD Application Team
+  * @brief   USBX Host MSC applicative header file
+  ******************************************************************************
+    * @attention
+  *
+  * Copyright (c) 2025 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+/* Define to prevent recursive inclusion -------------------------------------*/
+#ifndef __UX_HOST_MSC_H__
+#define __UX_HOST_MSC_H__
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Includes ------------------------------------------------------------------*/
+#include "ux_api.h"
+#include "ux_host_class_storage.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include "app_filex.h"
+#include "MyMain.h"
+/* USER CODE END Includes */
+
+/* Exported types ------------------------------------------------------------*/
+/* USER CODE BEGIN ET */
+
+/* USER CODE END ET */
+
+/* Exported constants --------------------------------------------------------*/
+/* USER CODE BEGIN EC */
+
+/* USER CODE END EC */
+
+/* Exported macro ------------------------------------------------------------*/
+/* USER CODE BEGIN EM */
+
+/* USER CODE END EM */
+
+/* Exported functions prototypes ---------------------------------------------*/
+
+/* USER CODE BEGIN EFP */
+VOID msc_process_thread_entry(ULONG thread_input);
+UINT Scan_sd_fx(CHAR *path);
+UINT Create_disp_File(char* name,char* path);
+VOID usb_sd(VOID);
+UINT MX_USBX_Host_DeInit();
+UINT Copy_File_From_eMMC_To_Host_USB(char* path, CHAR *filename);
+ULONG64 fx_get_free_space(FX_MEDIA *media);
+UINT Copy_File_From_Host_USB_To_eMMC(const CHAR *path);
+/* USER CODE END EFP */
+
+/* Private defines -----------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+#define STORAGE_MEDIA   0x01
+#define SD_USB_BUFFER_SIZE               0x800
+/* USER CODE END PD */
+
+/* USER CODE BEGIN 1 */
+
+typedef unsigned long	DWORD;
+
+typedef struct {
+	char     file_name[25];
+	char     sd_file_name[25];
+} FILE_BUF;
+
+typedef struct {
+	//USB_STATE  state;
+	DWORD   file_size;
+	DWORD   file_clust;
+	DWORD   file_sect;
+	DWORD	fileptr;
+	uint32_t buffer_size;
+	uint32_t poll_sd;
+	uint32_t poll_sd_wr;
+} SD_USB_INFO;
+
+
+typedef struct {
+  BUF_STATE  state;
+  char   buffer[SD_USB_BUFFER_SIZE];
+  int32_t    size;
+} SD_USB_CIR_BUF;
+/* USER CODE END 1 */
+
+#ifdef __cplusplus
+}
+#endif
+#endif  /* __UX_HOST_MSC_H__ */

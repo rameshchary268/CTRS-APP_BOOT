@@ -1,0 +1,7 @@
+../srrc/FileX.c:23:6:format	1
+../srrc/FileX.c:44:6:Open_disk	2
+../srrc/FileX.c:63:6:creating_file	7
+../srrc/FileX.c:119:6:Open_N_write	4
+../srrc/FileX.c:155:6:flush	2
+../srrc/FileX.c:165:6:Open_N_read_file	5
+../srrc/FileX.c:198:6:close_media	2
